@@ -1,13 +1,3 @@
----
-title: AlgoScope
-emoji: 🔍
-colorFrom: red
-colorTo: orange
-sdk: streamlit
-sdk_version: 1.38.0
-app_file: dashboard.py
-pinned: false
----
 
 <div align="center">
 
