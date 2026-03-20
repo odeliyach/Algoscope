@@ -1,0 +1,29 @@
+[project]
+name = "algoscope"
+version = "0.1.0"
+description = "Real-time algospeak & toxicity detection dashboard for Bluesky"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Odeliya Charitonova" }]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "transformers>=4.44.0",
+    "torch>=2.4.0",
+    "streamlit>=1.38.0",
+    "networkx>=3.3",
+    "pyvis>=0.3.2",
+    "plotly>=5.24.0",
+    "python-dotenv>=1.0.1",
+    "atproto>=0.0.54",
+]
+
+[project.urls]
+Repository = "https://github.com/odeliyach/algoscope"
+Model = "https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

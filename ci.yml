@@ -1,0 +1,54 @@
+# WHY GitHub Actions CI: catches broken imports and syntax errors before
+# they reach HuggingFace Spaces. Runs on every push to main.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Cache pip downloads — speeds up subsequent runs significantly
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # WHY check imports before running tests: a missing __init__.py or
+      # circular import will cause a cryptic error in Spaces. This catches it early.
+      - name: Check all modules import cleanly
+        run: |
+          python -c "from app.model import ToxicityClassifier"
+          python -c "from app.database import get_recent_posts, save_post"
+          python -c "from app.graph import build_cooccurrence_graph"
+          python -c "from app.ingestion import ALGOSPEAK_QUERIES"
+
+      # WHY syntax check dashboard separately: Streamlit apps can't be imported
+      # like modules — use ast.parse to verify syntax without executing.
+      - name: Check dashboard syntax
+        run: python -c "import ast; ast.parse(open('dashboard.py').read()); print('OK')"
+
+      - name: Run tests
+        env:
+          # Provide dummy credentials so .env-dependent code doesn't crash
+          BLUESKY_HANDLE: "test@test.com"
+          BLUESKY_PASSWORD: "testpassword"
+        run: python -m pytest tests/ -v --tb=short
+        # Continue even if no tests exist yet
+        continue-on-error: true
