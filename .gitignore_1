@@ -1,0 +1,32 @@
+# Credentials — never commit
+.env
+
+# Database — contains scraped user data
+algoscope.db
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# HuggingFace model cache
+.cache/
+
+# Pyvis auto-generated output — not application code
+*.html
+test_graph.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
