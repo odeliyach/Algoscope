@@ -1,2 +1,15 @@
-transformers>=4.30.0
-torch>=2.0.0
+# WHY: All dependencies listed here explicitly so HuggingFace Spaces and
+# fresh installs don't crash on import. Previously only torch + transformers
+# were listed — this caused the deployed app to fail on startup.
+# Single source of truth: kept in sync with pyproject.toml dependencies.
+fastapi>=0.115.0
+uvicorn>=0.30.0
+transformers>=4.44.0
+torch>=2.4.0
+streamlit>=1.38.0
+networkx>=3.3
+pyvis>=0.3.2
+plotly>=5.24.0
+python-dotenv>=1.0.1
+atproto>=0.0.54
+pytest>=8.0.0
