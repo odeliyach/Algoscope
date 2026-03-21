@@ -209,9 +209,9 @@ def main() -> None:
               <span class="algoscope-live-text">LIVE</span>
             </div>
             <div class="algoscope-meta">
-              by Odeliya Charitonova &middot; TAU CS<br/>
-              <a href="https://github.com/odeliyach/AlgoShield-Algospeak-Detection" target="_blank">
-                github.com/odeliyach/AlgoShield-Algospeak-Detection
+              by Odeliya Charitonova <br/>
+              <a href="https://github.com/odeliyach/Algoscope" target="_blank">
+                github.com/odeliyach/Algoscope
               </a>
             </div>
           </div>
@@ -336,7 +336,7 @@ def main() -> None:
                 time.sleep(1)
             st.session_state.auto_trigger_fetch = True
             st.session_state.auto_refresh_ran = True
-            st.experimental_rerun()
+            st.rerun()  # WHY st.rerun: experimental_rerun removed in Streamlit 1.34
         if not auto_refresh:
             st.session_state.auto_refresh_ran = False
 
@@ -403,7 +403,9 @@ def main() -> None:
 
 
     # ── Load data ──────────────────────────────────────────────────────────────
-    history = get_recent_posts(limit=1000)
+    # WHY limit=10000: using 1000 capped the "Posts analyzed" metric
+    # at 1000 even when the DB had more. High limit shows the real total.
+    history = get_recent_posts(limit=10000)
     batch_rows = st.session_state.analyzed_results
     vocab = set(st.session_state.selected_queries or []) | set(st.session_state.custom_terms or [])
 
@@ -549,48 +551,67 @@ def main() -> None:
                 buckets[hour]["count"] += 1
 
             if buckets:
-                points = sorted(buckets.items())[-24:]
-                hours = [p[0].strftime("%H:%M") for p in points]
-                avgs = [v["sum"] / v["count"] for _, v in points]
+                # WHY sort by datetime key not string label: hours like "01:00"
+                # sort alphabetically before "03:00" so without proper datetime
+                # sorting the line jumps backwards across midnight, creating a
+                # visual zigzag. Sorting by the actual datetime object fixes this.
+                # WHY sort by datetime key: ensures chronological order across
+                # midnight. Using datetime objects (not strings) as the x-axis
+                # means Plotly treats it as a real time axis — no more zigzag
+                # when data spans midnight (e.g. 22:00 → 01:00 → 14:00).
+                # WHY fixed 24 buckets: previous approach only showed hours
+                # with data, causing uneven spacing and duplicate labels when
+                # data spanned midnight. A fixed 0-23 hour axis is always
+                # uniform — empty hours show as gaps in the line (connectgaps=False).
+                hour_avgs = {}
+                for dt_key, val in buckets.items():
+                    h = dt_key.hour
+                    # If same hour appears on multiple days, keep the most recent
+                    if h not in hour_avgs or dt_key > max(
+                        k for k in buckets if k.hour == h
+                    ):
+                        hour_avgs[h] = val["sum"] / val["count"]
 
-                # WHY go.Bar over px: allows per-bar color based on value,
-                # giving a green→red gradient that encodes toxicity visually.
-                bar_colors = []
-                for a in avgs:
-                    if a < 0.4:
-                        bar_colors.append("#2ecc71")
-                    elif a < 0.7:
-                        bar_colors.append("#ff8c42")
-                    else:
-                        bar_colors.append("#ff4b4b")
+                x_labels = [f"{h:02d}:00" for h in range(24)]
+                y_vals = [hour_avgs.get(h, None) for h in range(24)]
+                point_colors = [
+                    "#2ecc71" if v is not None and v < 0.4
+                    else "#ff8c42" if v is not None and v < 0.7
+                    else "#ff4b4b" if v is not None
+                    else "rgba(0,0,0,0)"
+                    for v in y_vals
+                ]
 
-                # WHY per-bar traces with dark fill + colored border:
-                # creates a "neon glow" look on dark background — each bar is
-                # almost transparent with a bright outline, like a live monitor.
                 fig = go.Figure()
-                for h_label, avg in zip(hours, avgs):
-                    if avg < 0.4:
-                        fill, line = "rgba(46,204,113,0.15)", "#2ecc71"
-                    elif avg < 0.7:
-                        fill, line = "rgba(255,140,66,0.15)", "#ff8c42"
-                    else:
-                        fill, line = "rgba(255,75,75,0.18)", "#ff4b4b"
-                    fig.add_trace(go.Bar(
-                        x=[h_label], y=[avg],
-                        marker_color=fill,
-                        marker_line_color=line,
-                        marker_line_width=1.5,
-                        hovertemplate=f"{h_label}<br>Avg: {avg:.3f}<extra></extra>",
-                        showlegend=False,
-                    ))
+                fig.add_trace(go.Scatter(
+                    x=x_labels,
+                    y=y_vals,
+                    mode="lines+markers",
+                    connectgaps=True,
+                    line=dict(color="#ff4b4b", width=2, shape="spline"),
+                    fill="tozeroy",
+                    fillcolor="rgba(255,75,75,0.07)",
+                    marker=dict(
+                        color=point_colors,
+                        size=8,
+                        line=dict(color="#0a0d14", width=1.5),
+                    ),
+                    hovertemplate="%{x}<br>Avg score: %{y:.3f}<extra></extra>",
+                    showlegend=False,
+                ))
                 fig.update_layout(
                     showlegend=False,
                     margin=dict(l=10, r=10, t=10, b=10),
                     paper_bgcolor="#0a0d14",
                     plot_bgcolor="#0a0d14",
-                    height=220, bargap=0.15,
+                    height=220,
                 )
-                fig.update_xaxes(showgrid=False, color="#5a6080", tickfont_size=10)
+                fig.update_xaxes(
+                    showgrid=False, color="#5a6080", tickfont_size=10,
+                    tickmode="array",
+                    tickvals=[f"{h:02d}:00" for h in range(0, 24, 3)],
+                    ticktext=[f"{h:02d}:00" for h in range(0, 24, 3)],
+                )
                 fig.update_yaxes(range=[0, 1], showgrid=True,
                                   gridcolor="#1e2540", color="#5a6080", tickfont_size=10)
                 st.plotly_chart(fig, use_container_width=True)
