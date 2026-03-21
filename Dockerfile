@@ -14,6 +14,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY dashboard.py .
 
+# WHY non-root user: running as root means a container escape gives full
+# host access. Two lines is the industry baseline for container security.
+RUN useradd --create-home --shell /bin/bash appuser
+USER appuser
+
 # Expose Streamlit's default port
 EXPOSE 8501
 
