@@ -1,3 +1,13 @@
+---
+title: AlgoScope
+emoji: 🔍
+colorFrom: red
+colorTo: orange
+sdk: streamlit
+sdk_version: 1.38.0
+app_file: dashboard.py
+pinned: false
+---
 
 <div align="center">
 
@@ -6,7 +16,8 @@
 **Real-time algospeak & toxicity detection on Bluesky**
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://python.org)
-[![HuggingFace](https://img.shields.io/badge/Model-HuggingFace-orange?logo=huggingface)](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection)
+[![HuggingFace Model](https://img.shields.io/badge/Model-AlgoShield-orange?logo=huggingface)](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection)
+[![HuggingFace Space](https://img.shields.io/badge/Live%20Demo-Spaces-yellow?logo=huggingface)](https://huggingface.co/spaces/odeliyach/algoscope)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-red?logo=streamlit)](https://streamlit.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
@@ -22,7 +33,7 @@ Algospeak is the evolving coded language people use to evade content moderation 
 
 AlgoScope is a live dashboard that catches them anyway. It ingests posts from the Bluesky social network in real time, classifies each one with a fine-tuned DistilBERT model trained specifically on algospeak, and visualizes toxicity patterns, co-occurrence networks, and trend spikes in an interactive dashboard.
 
-> **Why this matters:** Algospeak evasion is an active research problem in content moderation. This project turns a published NLP paper into a live, clickable product.
+> **Why this matters:** Algospeak evasion is an active research problem in content moderation. This project turns published NLP research into a live, clickable product.
 
 ---
 
@@ -31,14 +42,15 @@ AlgoScope is a live dashboard that catches them anyway. It ingests posts from th
 | Resource | Link |
 |----------|------|
 | 🖥️ Live dashboard | [huggingface.co/spaces/odeliyach/algoscope](https://huggingface.co/spaces/odeliyach/algoscope) |
-| 🤗 Model | [odeliyach/AlgoShield-Algospeak-Detection](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection) |
+| 🤗 Fine-tuned model | [odeliyach/AlgoShield-Algospeak-Detection](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection) |
+| 💻 GitHub | [github.com/odeliyach/Algoscope](https://github.com/odeliyach/Algoscope) |
 
 ---
 
 ## Features
 
 - **🚨 Spike alerts** — red banner when a tracked term exceeds 80% toxic in the last hour
-- **📊 Toxicity over time** — hourly bar chart with per-bar color encoding (green/orange/red)
+- **📊 Toxicity over time** — hourly line chart with color-coded data points (green/orange/red by toxicity level)
 - **🕸️ Co-occurrence graph** — interactive word graph built with NetworkX + Pyvis; nodes colored by toxicity rate
 - **⚖️ Term comparison** — side-by-side toxicity profiles for any two tracked terms
 - **📥 Export** — download all analyzed posts as CSV or JSON
@@ -75,23 +87,25 @@ AlgoScope is a live dashboard that catches them anyway. It ingests posts from th
 
 ---
 
-## Model
+## Model — AlgoShield
 
-Fine-tuned DistilBERT on the [MADOC dataset](https://arxiv.org/abs/2306.01976) (Multimodal Algospeak Detection and Offensive Content):
+The classifier powering AlgoScope is **AlgoShield**, a DistilBERT model fine-tuned on the [MADOC dataset](https://arxiv.org/abs/2306.01976) (Multimodal Algospeak Detection and Offensive Content). It was trained and evaluated separately — full training code, dataset preprocessing, and evaluation notebooks are in the [AlgoShield repository](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection).
 
 | Metric | Baseline DistilBERT | AlgoShield (fine-tuned) |
 |--------|---------------------|------------------------|
 | Precision | 70.3% | 61.2% |
 | Recall | 33.2% | **73.2% (+40 pts)** |
-| F1 | — | 66.7% |
+| F1 | 49.0% | **66.7% (+17.7 pts)** |
 
-The +40-point recall gain comes at the cost of ~9 points of precision — a deliberate tradeoff. In content moderation, a false negative (missing a toxic post) causes real harm; a false positive just means a human reviews something innocent. The threshold slider lets operators tune this at deployment time without retraining.
+The +40-point recall improvement comes at the cost of ~9 points of precision — a deliberate tradeoff. In content moderation, a false negative (missing a toxic post) causes real harm; a false positive just means a human reviews something innocent. The threshold slider in AlgoScope lets operators tune this tradeoff at deployment time without retraining.
+
+> Want to understand how AlgoShield was built? See the [model card and training details →](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection)
 
 ---
 
 ## Key Engineering Decisions
 
-**Train/serve parity** — The same `preprocess_text()` function used during training (strip URLs, remove non-ASCII, discard posts under 10 chars) is applied at inference time. Without this, the model sees out-of-distribution input on every prediction — a production ML bug called train/serve skew.
+**Train/serve parity** — The same `preprocess_text()` function used during AlgoShield's training is applied at inference time in AlgoScope. Without this, the model sees out-of-distribution input on every prediction — a production ML bug called train/serve skew.
 
 **Threshold separation** — The model outputs a raw confidence score; a threshold slider converts it to a binary label. This separates the ML model from business policy — the same pattern used in Gmail spam and YouTube moderation. One model, multiple thresholds tuned per context.
 
@@ -108,12 +122,19 @@ The +40-point recall gain comes at the cost of ~9 points of precision — a deli
 **Requirements:** Python 3.12, a Bluesky account
 
 ```bash
-git clone https://github.com/odeliyach/algoscope
-cd algoscope
+git clone https://github.com/odeliyach/Algoscope
+cd Algoscope
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Mac/Linux
 pip install -r requirements.txt
+```
+
+Or with Make:
+```bash
+make install
+make run-dashboard   # in one terminal
+make run-api         # in another
 ```
 
 Create `.env` in the project root:
@@ -122,32 +143,28 @@ BLUESKY_HANDLE=yourhandle.bsky.social
 BLUESKY_PASSWORD=yourpassword
 ```
 
-```bash
-# Terminal 1 — API backend
-uvicorn app.main:app --reload
-
-# Terminal 2 — dashboard
-streamlit run dashboard.py
-```
-
-Open `http://localhost:8501`, select algospeak terms, and click **Fetch & Analyze**.
-
 ---
 
 ## Project Structure
 
 ```
-algoscope/
+Algoscope/
 ├── app/
-│   ├── main.py          # FastAPI endpoints (/predict, /ingest, /history)
+│   ├── main.py          # FastAPI endpoints (/health, /predict)
 │   ├── model.py         # ToxicityClassifier — singleton load, batch inference
 │   ├── ingestion.py     # Bluesky AT Protocol client + preprocessing
 │   ├── database.py      # SQLite persistence — isolated for easy swap
 │   └── graph.py         # NetworkX co-occurrence graph + Pyvis HTML export
+├── tests/
+│   └── test_core.py     # Preprocessing parity, DB round-trip, stopwords
 ├── dashboard.py         # Streamlit dashboard — 4 tabs
-├── requirements.txt     # Dependencies
-├── .env                 # Credentials — not committed
-└── README.md
+├── Makefile             # install / run / test / lint shortcuts
+├── requirements.txt     # Runtime dependencies
+├── pyproject.toml       # Project metadata + tooling config
+├── Dockerfile           # python:3.12-slim, non-root user
+├── .github/workflows/
+│   └── ci.yml           # Import checks + syntax + pytest on every push
+└── .env                 # Credentials — not committed
 ```
 
 ---
