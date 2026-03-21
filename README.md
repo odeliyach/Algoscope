@@ -1,13 +1,3 @@
----
-title: AlgoScope
-emoji: 🔍
-colorFrom: red
-colorTo: orange
-sdk: streamlit
-sdk_version: 1.38.0
-app_file: dashboard.py
-pinned: false
----
 
 <div align="center">
 
@@ -21,7 +11,7 @@ pinned: false
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-red?logo=streamlit)](https://streamlit.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-*Odeliya Charitonova · Tel Aviv University, School of CS & AI · 2026*
+*Odeliya Charitonova · 2026*
 
 </div>
 
@@ -44,6 +34,16 @@ AlgoScope is a live dashboard that catches them anyway. It ingests posts from th
 | 🖥️ Live dashboard | [huggingface.co/spaces/odeliyach/algoscope](https://huggingface.co/spaces/odeliyach/algoscope) |
 | 🤗 Fine-tuned model | [odeliyach/AlgoShield-Algospeak-Detection](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection) |
 | 💻 GitHub | [github.com/odeliyach/Algoscope](https://github.com/odeliyach/Algoscope) |
+
+---
+
+## Screenshots
+
+![AlgoScope Overview](assets/overview.png)
+
+![Co-occurrence Graph](assets/graph.png)
+
+![Term Comparison](assets/term_comparison.png)
 
 ---
 
@@ -155,6 +155,10 @@ Algoscope/
 │   ├── ingestion.py     # Bluesky AT Protocol client + preprocessing
 │   ├── database.py      # SQLite persistence — isolated for easy swap
 │   └── graph.py         # NetworkX co-occurrence graph + Pyvis HTML export
+├── assets/
+│   ├── overview.png         # Dashboard overview screenshot
+│   ├── graph.png            # Co-occurrence graph screenshot
+│   └── term_comparison.png  # Term comparison screenshot
 ├── tests/
 │   └── test_core.py     # Preprocessing parity, DB round-trip, stopwords
 ├── dashboard.py         # Streamlit dashboard — 4 tabs
@@ -165,17 +169,6 @@ Algoscope/
 ├── .github/workflows/
 │   └── ci.yml           # Import checks + syntax + pytest on every push
 └── .env                 # Credentials — not committed
-```
-
----
-
-## Deployment (HuggingFace Spaces)
-
-1. Push this repo to GitHub (verify `.env` and `algoscope.db` are in `.gitignore`)
-2. Go to [huggingface.co](https://huggingface.co) → New Space → Streamlit → connect this GitHub repo
-3. In Space Settings → Secrets, add `BLUESKY_HANDLE` and `BLUESKY_PASSWORD`
-4. The Space auto-deploys on every push to `main`
-
 ---
 
 ## Limitations & Future Work
