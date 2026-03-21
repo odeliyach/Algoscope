@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/odeliyach/algoscope"
+Repository = "https://github.com/odeliyach/Algoscope"
 Model = "https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection"
 
 [tool.ruff]
