@@ -17,10 +17,13 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          # WHY set git identity: GitHub Actions runners have no git user
+          # configured by default. Without this, any git commit fails.
+          git config --global user.email "deploy@github-actions.com"
+          git config --global user.name "GitHub Actions"
+
           # WHY a separate branch: HF blocks PNG/binary files unless using
-          # Git LFS. We create a clean branch with only app code (no assets/)
-          # and push that to HF. The GitHub repo keeps the full history
-          # including screenshots — HF only gets what it needs to run.
+          # Git LFS. We push a clean branch without assets/ to HF.
           git checkout -b hf-deploy
           git rm -r --cached assets/ 2>/dev/null || true
           git commit -m "Remove assets for HF deploy" --allow-empty
