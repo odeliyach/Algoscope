@@ -31,7 +31,7 @@ AlgoScope is a live dashboard that catches them anyway. It ingests posts from th
 
 | Resource | Link |
 |----------|------|
-| 🖥️ Live dashboard | [huggingface.co/spaces/odeliyach/algoscope](https://huggingface.co/spaces/odeliyach/algoscope) |
+| 🖥️ Live dashboard | [huggingface.co/spaces/odeliyach/algoscope](https://huggingface.co/spaces/odeliyach/Algoscope) |
 | 🤗 Fine-tuned model | [odeliyach/AlgoShield-Algospeak-Detection](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection) |
 | 💻 GitHub | [github.com/odeliyach/Algoscope](https://github.com/odeliyach/Algoscope) |
 
