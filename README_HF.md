@@ -46,16 +46,6 @@ AlgoScope is a live dashboard that catches them anyway. It ingests posts from th
 
 ---
 
-## Screenshots
-
-![AlgoScope Overview](assets/overview.png)
-
-![Co-occurrence Graph](assets/graph.png)
-
-![Term Comparison](assets/term_comparison.png)
-
----
-
 ## Features
 
 - **🚨 Spike alerts** — red banner when a tracked term exceeds 80% toxic in the last hour
