@@ -1,6 +1,3 @@
-# WHY this file: HuggingFace no longer supports automatic GitHub sync.
-# This Action pushes your code to the HF Space on every push to main,
-# recreating the auto-deploy behavior — push to GitHub = live update.
 name: Deploy to HuggingFace Spaces
 
 on:
@@ -20,5 +17,12 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          # WHY a separate branch: HF blocks PNG/binary files unless using
+          # Git LFS. We create a clean branch with only app code (no assets/)
+          # and push that to HF. The GitHub repo keeps the full history
+          # including screenshots — HF only gets what it needs to run.
+          git checkout -b hf-deploy
+          git rm -r --cached assets/ 2>/dev/null || true
+          git commit -m "Remove assets for HF deploy" --allow-empty
           git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
-          git push space main --force
+          git push space hf-deploy:main --force
