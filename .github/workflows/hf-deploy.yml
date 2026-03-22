@@ -1,0 +1,24 @@
+# WHY this file: HuggingFace no longer supports automatic GitHub sync.
+# This Action pushes your code to the HF Space on every push to main,
+# recreating the auto-deploy behavior — push to GitHub = live update.
+name: Deploy to HuggingFace Spaces
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
+          git push space main --force
