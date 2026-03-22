@@ -19,12 +19,12 @@ COPY dashboard.py .
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# Expose Streamlit's default port
-EXPOSE 8501
+# WHY 7860: HuggingFace Docker Spaces expect port 7860 by default.
+# Using 8501 (Streamlit's default) causes "Preparing Space" to hang
+# because HF's proxy never gets a response on the expected port.
+EXPOSE 7860
 
-# WHY --server.address=0.0.0.0: Streamlit binds to localhost by default,
-# which is unreachable from outside the container.
 CMD ["streamlit", "run", "dashboard.py", \
-     "--server.port=8501", \
+     "--server.port=7860", \
      "--server.address=0.0.0.0", \
      "--server.headless=true"]
