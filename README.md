@@ -169,6 +169,7 @@ Algoscope/
 ├── .github/workflows/
 │   └── ci.yml           # Import checks + syntax + pytest on every push
 └── .env                 # Credentials — not committed
+```
 ---
 
 ## Limitations & Future Work
