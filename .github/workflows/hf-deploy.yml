@@ -18,18 +18,17 @@ jobs:
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
 
-          # WHY orphan branch: HF scans full git history for binary files.
-          # Removing files from the branch is not enough — they still exist
-          # in previous commits. An orphan branch has no history at all,
-          # so HF never sees the PNG files.
           git checkout --orphan hf-deploy
-
-          # Remove assets folder from this clean snapshot
           git rm -rf assets/ 2>/dev/null || true
 
-          # Stage everything else
+          # WHY swap README: GitHub README has no YAML header (looks clean).
+          # README_HF.md is the same content but with the HF YAML header.
+          # We replace README.md with it before pushing to HuggingFace.
+          cp README_HF.md README.md
+          git rm --cached README_HF.md 2>/dev/null || true
+          rm README_HF.md
+
           git add .
           git commit -m "Deploy to HuggingFace Spaces"
-
           git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
           git push space hf-deploy:main --force
