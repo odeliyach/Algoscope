@@ -23,7 +23,7 @@ def classifier(monkeypatch) -> "ToxicityClassifier":
 
     monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
 
-    # Session-scoped to avoid multiple heavy model loads during collection
+    # Function-scoped so each test gets the stubbed loader without sharing state
     return ToxicityClassifier()
 
 

@@ -12,5 +12,5 @@ def test_dashboard_imports(monkeypatch) -> None:
 
     monkeypatch.setattr(model_module, "ToxicityClassifier", DummyClassifier)
 
-    dashboard = importlib.reload(importlib.import_module("dashboard"))
+    dashboard = importlib.import_module("dashboard")
     assert dashboard is not None
