@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system tools
+        run: sudo apt-get update && sudo apt-get install -y lcov clang-format
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -25,10 +28,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}-lintcov
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt ruff pytest-cov
+
+      - name: Python lint (ruff)
+        run: ruff check app/ dashboard.py tests/
+
+      - name: C style (clang-format)
+        if: ${{ hashFiles('**/*.c', '**/*.h') != '' }}
+        run: |
+          clang-format --version
+          clang-format --dry-run --Werror $(find . -name "*.c" -o -name "*.h")
 
       # WHY check imports before running tests: a missing __init__.py or
       # circular import will cause a cryptic error in Spaces. This catches it early.
@@ -44,11 +58,22 @@ jobs:
       - name: Check dashboard syntax
         run: python -c "import ast; ast.parse(open('dashboard.py').read()); print('OK')"
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           # Provide dummy credentials so .env-dependent code doesn't crash
           BLUESKY_HANDLE: "test@test.com"
           BLUESKY_PASSWORD: "testpassword"
-        run: python -m pytest tests/ -v --tb=short
-        # Continue even if no tests exist yet
-        continue-on-error: true
+        run: |
+          python -m pytest tests/ -v --tb=short --cov=app --cov=tests --cov-report=xml
+
+      - name: Collect lcov coverage
+        run: |
+          lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml, ./coverage.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: python,c
+          fail_ci_if_error: true
