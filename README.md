@@ -5,6 +5,9 @@
 
 **Real-time algospeak & toxicity detection on Bluesky**
 
+[![Build](https://img.shields.io/github/actions/workflow/status/odeliyach/Algoscope/ci.yml?branch=main&label=Build)](https://github.com/odeliyach/Algoscope/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/odeliyach/Algoscope?branch=main&label=Coverage)](https://codecov.io/gh/odeliyach/Algoscope)
+[![Linting/Style](https://img.shields.io/github/actions/workflow/status/odeliyach/Algoscope/ci.yml?branch=main&label=Linting%2FStyle)](https://github.com/odeliyach/Algoscope/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://python.org)
 [![HuggingFace Model](https://img.shields.io/badge/Model-AlgoShield-orange?logo=huggingface)](https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection)
 [![HuggingFace Space](https://img.shields.io/badge/Live%20Demo-Spaces-yellow?logo=huggingface)](https://huggingface.co/spaces/odeliyach/algoscope)

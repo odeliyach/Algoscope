@@ -2,10 +2,12 @@
 FastAPI backend for AlgoScope toxicity detection.
 """
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import logging
+from app.model import ToxicityClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,6 @@ app.add_middleware(
 # WHY module-level: ToxicityClassifier uses the singleton pattern so the
 # model loads once at startup and stays in memory for all requests.
 # Without this, every /predict call would reload 250MB from disk (~2s latency).
-from app.model import ToxicityClassifier
 classifier = ToxicityClassifier()
 logger.info("ToxicityClassifier loaded and ready")
 

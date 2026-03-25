@@ -12,8 +12,6 @@ WHY these three tests:
 
 import os
 import sys
-import tempfile
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -90,7 +88,7 @@ class TestGraphConstruction:
 
     def test_seed_words_present_in_graph(self):
         """After building the graph, at least one known algospeak term should appear."""
-        from app.graph import build_cooccurrence_graph, STOPWORDS
+        from app.graph import STOPWORDS
         # Verify stopwords filter generic words
         generic = {"the", "and", "get", "like", "know", "time", "people", "just"}
         overlap = generic & STOPWORDS

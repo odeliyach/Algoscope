@@ -43,7 +43,11 @@ class ToxicityClassifier:
         Raises RuntimeError if the model cannot be loaded, so failures are
         loud and explicit rather than silently returning wrong predictions.
         """
+        if self._pipeline is not None:
+            return
+
         try:
+            import torch  # noqa: F401
             from transformers import pipeline
 
             logger.info("Loading AlgoShield-Algospeak-Detection model...")

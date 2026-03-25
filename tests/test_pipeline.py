@@ -1,17 +1,39 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
 from dotenv import load_dotenv
-load_dotenv()
 
-from app.ingestion import fetch_posts
-from app.model import ToxicityClassifier
-from app.database import save_post, get_recent_posts
+if TYPE_CHECKING:
+    from app.model import ToxicityClassifier
 
-classifier = ToxicityClassifier()
-posts = fetch_posts('toxic', limit=5)
 
-for text in posts:
-    result = classifier.predict(text)
-    save_post(text, result['label'], result['score'], 'bluesky')
-    print(f"{result['label']} ({result['score']:.2f}) — {text[:60]}")
+@pytest.fixture()
+def classifier(monkeypatch) -> "ToxicityClassifier":
+    # Ensure environment variables are available before loading the model
+    load_dotenv()
+    from app.model import ToxicityClassifier
 
-print('---')
-print(f'Total in DB: {len(get_recent_posts())}')
+    # Avoid external downloads during tests by stubbing the model loader
+    def _fake_load(self: "ToxicityClassifier") -> None:
+        # Minimal stub: fixed response is sufficient for the smoke test and avoids HF downloads.
+        # Keep kwargs to mirror the real transformers pipeline signature.
+        def fake_pipeline(text, **kwargs):
+            if isinstance(text, (list, tuple)):
+                return [{"label": "toxic", "score": 0.5} for _ in text]
+            if isinstance(text, str):
+                return [{"label": "toxic", "score": 0.5}]
+            return []
+
+        self._pipeline = fake_pipeline
+
+    monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
+
+    # Function-scoped to leverage pytest's monkeypatch lifecycle
+    return ToxicityClassifier()
+
+
+def test_classifier_predicts(classifier: ToxicityClassifier) -> None:
+    result = classifier.predict("Test text to check pipeline.")
+    assert "label" in result and "score" in result
