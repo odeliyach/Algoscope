@@ -32,12 +32,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-pip-3.12-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
           restore-keys: |
+            ${{ runner.os }}-pip-3.12-
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt ruff pytest-cov
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Python lint (ruff)
         run: ruff check app/ dashboard.py tests/
@@ -78,7 +79,7 @@ jobs:
         id: lcov
         run: |
           if find . -name "*.gcda" -o -name "*.gcno" | grep -q .; then
-            # Keep --ignore-errors unused to avoid lcov exit code 25 when trace/source files are missing
+            # Keep --ignore-errors unused to avoid lcov exit code 25 when trace/source files are missing (expected when C/Unity coverage artifacts are absent)
             lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
             echo "generated=true" >> "$GITHUB_OUTPUT"
           else
