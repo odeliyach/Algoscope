@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/badge/Model-AlgoShield-FFB3BA?logo=huggingface&logoColor=white">
   </a>
   <a href="https://huggingface.co/spaces/odeliyach/algoscope">
-    <img src="https://img.shields.io/badge/Live%20Demo-Spaces-FFFFBA?logo=huggingface&logoColor=333333">
+    <img src="https://img.shields.io/badge/Live%20Demo-Spaces-FFFFBA?logo=huggingface&logoColor=white">
   </a>
 </p>
 
