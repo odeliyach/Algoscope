@@ -49,8 +49,7 @@ class ToxicityClassifier:
         try:
             import torch
             from transformers import pipeline
-            # Touch torch to ensure the import is exercised once; avoids Ruff F401
-            # and prevents lazy loaders from re-importing torch later.
+            # Touch torch to satisfy linting; transformers requires it at runtime.
             _ = torch.__version__
 
             logger.info("Loading AlgoShield-Algospeak-Detection model...")
