@@ -39,7 +39,7 @@ jobs:
         run: ruff check app/ dashboard.py tests/
 
       - name: C style (clang-format)
-        if: hashFiles('**/*.c', '**/*.h')
+        if: hashFiles('**/*.c', '**/*.h') != ''
         run: |
           clang-format --version
           clang-format --dry-run --Werror $(find . -name "*.c" -o -name "*.h")
@@ -67,7 +67,7 @@ jobs:
           python -m pytest tests/ -v --tb=short --cov=app --cov=dashboard --cov-report=xml
 
       - name: Collect lcov coverage
-        if: hashFiles('**/*.gcda', '**/*.gcno')
+        if: hashFiles('**/*.gcda', '**/*.gcno') != ''
         run: |
           lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
 
@@ -80,7 +80,7 @@ jobs:
           fail_ci_if_error: true
 
       - name: Upload C coverage to Codecov
-        if: hashFiles('coverage.info')
+        if: hashFiles('coverage.info') != ''
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.info
