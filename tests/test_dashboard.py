@@ -8,7 +8,8 @@ def test_dashboard_imports(monkeypatch) -> None:
     from app import model as model_module
 
     class DummyClassifier:
-        def __init__(self) -> None: ...
+        def __init__(self) -> None:
+            pass
 
         def predict(self, text: str) -> dict:
             return {"label": "non-toxic", "score": 0.0}
