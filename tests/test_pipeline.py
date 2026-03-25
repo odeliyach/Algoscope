@@ -1,9 +1,9 @@
 from dotenv import load_dotenv
-load_dotenv()
-
 from app.ingestion import fetch_posts
 from app.model import ToxicityClassifier
 from app.database import save_post, get_recent_posts
+
+load_dotenv()
 
 classifier = ToxicityClassifier()
 posts = fetch_posts('toxic', limit=5)

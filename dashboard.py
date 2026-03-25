@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 from html import escape
 
 from dotenv import load_dotenv
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -345,8 +344,6 @@ def main() -> None:
             s = st.session_state.fetch_stats
             st.caption(f"Fetched {s['n']} posts in {s['fetch']:.1f}s · Inference: {s['infer']:.1f}s")
 
-    # Graph button/controls defined later inside the graph tab
-    build_graph_button = False
     min_cooccurrence = st.session_state.last_min_cooc
 
     # ── Trigger handling ───────────────────────────────────────────────────────
@@ -691,7 +688,7 @@ def main() -> None:
             rows_html.append(hour_labels)
 
             for d_idx, day in enumerate(days):
-                row_html = f"<div style='display:flex;align-items:center;gap:2px;'>"
+                row_html = "<div style='display:flex;align-items:center;gap:2px;'>"
                 row_html += f"<div style='width:36px;font-size:0.68rem;color:#5a6080;text-align:right;padding-right:6px'>{day}</div>"
                 for h in range(24):
                     cell = hm.get((d_idx, h))
@@ -767,7 +764,7 @@ def main() -> None:
             with ctrl_col:
                 min_cooccurrence = st.slider("Min co-occurrences", 2, 10,
                                               st.session_state.last_min_cooc, key="graph_cooc_slider")
-                toxic_only_graph = st.checkbox("Toxic posts only", value=False, key="toxic_only_graph")
+                _ = st.checkbox("Toxic posts only", value=False, key="toxic_only_graph")
                 if st.button("Build Graph", use_container_width=True, key="build_graph_btn"):
                     st.session_state.build_graph_trigger = True
                     st.session_state.build_graph_cooc = int(min_cooccurrence)
@@ -890,7 +887,9 @@ def main() -> None:
         if not export_rows:
             st.info("No data to export yet. Fetch posts first.")
         else:
-            import csv, io, json as _json
+            import csv
+            import io
+            import json as _json
 
             # WHY io.StringIO: lets us build the CSV entirely in memory without
             # writing to disk — important for a stateless server environment like
