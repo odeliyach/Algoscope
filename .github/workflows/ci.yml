@@ -15,8 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system tools
-        run: sudo apt-get update && sudo apt-get install -y lcov clang-format
+      - name: Install lcov
+        run: sudo apt-get update && sudo apt-get install -y lcov
+
+      - name: Install clang-format (if needed)
+        if: hashFiles('**/*.c', '**/*.h') != ''
+        run: sudo apt-get install -y clang-format
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -74,7 +78,7 @@ jobs:
         id: lcov
         run: |
           if find . -name "*.gcda" -o -name "*.gcno" | grep -q .; then
-            # Keep --ignore-errors unused to avoid exit code 25 when traces are missing
+            # Keep --ignore-errors unused to avoid lcov exit code 25 when trace files are missing
             lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
             echo "generated=true" >> "$GITHUB_OUTPUT"
           else
