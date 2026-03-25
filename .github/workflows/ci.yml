@@ -80,7 +80,7 @@ jobs:
         id: lcov
         run: |
           if find . -name "*.gcda" -o -name "*.gcno" | grep -q .; then
-            # Keep --ignore-errors unused to avoid lcov exit code 25 when trace or source files are missing (expected when C/Unity coverage artifacts are absent)
+            # Keep --ignore-errors unused to avoid lcov exit code 25 when trace or source files are missing (expected when C/Unity coverage artifacts aren't produced)
             lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
             echo "generated=true" >> "$GITHUB_OUTPUT"
           else
