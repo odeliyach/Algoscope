@@ -47,10 +47,8 @@ class ToxicityClassifier:
             return
 
         try:
-            import torch
+            import torch  # noqa: F401
             from transformers import pipeline
-            # Touch torch to satisfy linting; transformers requires it at runtime.
-            _ = torch.__version__
 
             logger.info("Loading AlgoShield-Algospeak-Detection model...")
             self._pipeline = pipeline(

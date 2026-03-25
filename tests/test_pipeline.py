@@ -19,7 +19,9 @@ def classifier(monkeypatch) -> "ToxicityClassifier":
     def _fake_load(self: "ToxicityClassifier") -> None:
         # Minimal stub: fixed response is sufficient for the smoke test and avoids HF downloads.
         self._pipeline = (
-            lambda text, **kwargs: [{"label": "toxic", "score": 0.5, "text": str(text)}]
+            lambda text, **kwargs: [{"label": "toxic", "score": 0.5}]
+            if isinstance(text, str)
+            else []
         )
 
     monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
