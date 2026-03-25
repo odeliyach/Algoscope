@@ -17,9 +17,7 @@ def classifier(monkeypatch) -> "ToxicityClassifier":
 
     # Avoid external downloads during tests by stubbing the model loader
     def _fake_load(self: "ToxicityClassifier") -> None:
-        self._pipeline = lambda text, truncation=True, max_length=512: [
-            {"label": "toxic", "score": 0.5}
-        ]
+        self._pipeline = lambda text, **kwargs: [{"label": "toxic", "score": 0.5}]
 
     monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
 
