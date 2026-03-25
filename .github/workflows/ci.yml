@@ -79,6 +79,7 @@ jobs:
           # Provide dummy credentials so .env-dependent code doesn't crash
           BLUESKY_HANDLE: "test@test.com"
           BLUESKY_PASSWORD: "testpassword"
+          PYTHONPATH: .
         run: |
           # Track coverage for both the FastAPI app code and the Streamlit dashboard entrypoint
           python -m pytest tests/ -v --tb=short --cov=app --cov=dashboard.py --cov-report=xml

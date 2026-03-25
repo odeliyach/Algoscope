@@ -1,17 +1,17 @@
+import pytest
 from dotenv import load_dotenv
-from app.ingestion import fetch_posts
+
 from app.model import ToxicityClassifier
-from app.database import save_post, get_recent_posts
 
 load_dotenv()
 
-classifier = ToxicityClassifier()
-posts = fetch_posts('toxic', limit=5)
 
-for text in posts:
-    result = classifier.predict(text)
-    save_post(text, result['label'], result['score'], 'bluesky')
-    print(f"{result['label']} ({result['score']:.2f}) — {text[:60]}")
+@pytest.fixture(scope="session")
+def classifier() -> ToxicityClassifier:
+    # Session-scoped to avoid multiple heavy model loads during collection
+    return ToxicityClassifier()
 
-print('---')
-print(f'Total in DB: {len(get_recent_posts())}')
+
+def test_classifier_predicts(classifier: ToxicityClassifier) -> None:
+    result = classifier.predict("Test text to check pipeline.")
+    assert "label" in result and "score" in result
