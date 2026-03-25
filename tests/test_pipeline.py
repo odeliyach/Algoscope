@@ -18,6 +18,7 @@ def classifier(monkeypatch) -> "ToxicityClassifier":
     # Avoid external downloads during tests by stubbing the model loader
     def _fake_load(self: "ToxicityClassifier") -> None:
         # Minimal stub: fixed response is sufficient for the smoke test and avoids HF downloads.
+        # Keep kwargs to mirror the real transformers pipeline signature.
         def fake_pipeline(text, **kwargs):
             if isinstance(text, (list, tuple)):
                 return [{"label": "toxic", "score": 0.5} for _ in text]

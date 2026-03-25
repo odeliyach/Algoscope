@@ -9,17 +9,17 @@ def test_dashboard_imports(monkeypatch) -> None:
 
     class DummyClassifier:
         @staticmethod
-        def _response() -> dict:
+        def _get_default_response() -> dict:
             return {"label": "non-toxic", "score": 0.0}
 
         def __init__(self) -> None:
             pass
 
         def predict(self, text: str) -> dict:
-            return self._response()
+            return self._get_default_response()
 
         def predict_batch(self, texts: list[str]) -> list[dict]:
-            return [self._response() for _ in texts]
+            return [self._get_default_response() for _ in texts]
 
     monkeypatch.setattr(model_module, "ToxicityClassifier", DummyClassifier)
 
