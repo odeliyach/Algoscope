@@ -3,26 +3,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from _pytest.monkeypatch import MonkeyPatch
 from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from app.model import ToxicityClassifier
 
 
-@pytest.fixture(scope="session")
-def classifier() -> "ToxicityClassifier":
+@pytest.fixture()
+def classifier(monkeypatch) -> "ToxicityClassifier":
     # Ensure environment variables are available before loading the model
     load_dotenv()
     from app.model import ToxicityClassifier
 
-    # Session-scoped patch so we don't need the function-scoped monkeypatch fixture.
-    mp = MonkeyPatch()
-
     # Avoid external downloads during tests by stubbing the model loader
     def _fake_load(self: "ToxicityClassifier") -> None:
         # Minimal stub: fixed response is sufficient for the smoke test and avoids HF downloads.
-        def fake_pipeline(text, **_kwargs):
+        def fake_pipeline(text, **kwargs):
             if isinstance(text, (list, tuple)):
                 return [{"label": "toxic", "score": 0.5} for _ in text]
             if isinstance(text, str):
@@ -31,11 +27,10 @@ def classifier() -> "ToxicityClassifier":
 
         self._pipeline = fake_pipeline
 
-    mp.setattr(ToxicityClassifier, "_load_model", _fake_load)
+    monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
 
-    instance = ToxicityClassifier()
-    yield instance
-    mp.undo()
+    # Function-scoped to leverage pytest's monkeypatch lifecycle
+    return ToxicityClassifier()
 
 
 def test_classifier_predicts(classifier: ToxicityClassifier) -> None:
