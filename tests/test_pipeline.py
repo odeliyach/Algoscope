@@ -1,13 +1,28 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 from dotenv import load_dotenv
 
-from app.model import ToxicityClassifier
+if TYPE_CHECKING:
+    from app.model import ToxicityClassifier
 
-load_dotenv()
 
+@pytest.fixture()
+def classifier(monkeypatch) -> "ToxicityClassifier":
+    # Ensure environment variables are available before loading the model
+    load_dotenv()
+    from app.model import ToxicityClassifier
 
-@pytest.fixture(scope="session")
-def classifier() -> ToxicityClassifier:
+    # Avoid external downloads during tests by stubbing the model loader
+    def _fake_load(self: "ToxicityClassifier") -> None:
+        self._pipeline = lambda text, truncation=True, max_length=512: [
+            {"label": "toxic", "score": 0.5}
+        ]
+
+    monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
+
     # Session-scoped to avoid multiple heavy model loads during collection
     return ToxicityClassifier()
 
