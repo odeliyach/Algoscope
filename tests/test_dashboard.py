@@ -13,7 +13,7 @@ def test_dashboard_imports(monkeypatch) -> None:
         def predict(self, text: str) -> dict:
             return {"label": "non-toxic", "score": 0.0}
 
-        def predict_batch(self, texts) -> list[dict]:
+        def predict_batch(self, texts: list[str]) -> list[dict]:
             return [{"label": "non-toxic", "score": 0.0} for _ in texts]
 
     monkeypatch.setattr(model_module, "ToxicityClassifier", DummyClassifier)

@@ -47,8 +47,9 @@ class ToxicityClassifier:
             return
 
         try:
-            import torch  # noqa: F401
+            import torch
             from transformers import pipeline
+            _ = torch.__version__
 
             logger.info("Loading AlgoShield-Algospeak-Detection model...")
             self._pipeline = pipeline(
