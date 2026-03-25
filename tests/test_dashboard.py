@@ -8,16 +8,18 @@ def test_dashboard_imports(monkeypatch) -> None:
     from app import model as model_module
 
     class DummyClassifier:
-        RESPONSE = {"label": "non-toxic", "score": 0.0}
+        @staticmethod
+        def _response() -> dict:
+            return {"label": "non-toxic", "score": 0.0}
 
         def __init__(self) -> None:
             pass
 
         def predict(self, text: str) -> dict:
-            return self.RESPONSE.copy()
+            return self._response()
 
         def predict_batch(self, texts: list[str]) -> list[dict]:
-            return [self.RESPONSE.copy() for _ in texts]
+            return [self._response() for _ in texts]
 
     monkeypatch.setattr(model_module, "ToxicityClassifier", DummyClassifier)
 
