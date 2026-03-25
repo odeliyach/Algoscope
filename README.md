@@ -6,18 +6,18 @@
 **Real-time algospeak & toxicity detection on Bluesky**
 
 <p align="center">
-  <img src="https://img.shields.io/github/actions/workflow/status/odeliyach/Algoscope/ci.yml?branch=main&label=Build&color=BAFFC9&logo=github-actions&logoColor=white">
-  <img src="https://img.shields.io/badge/Linting-Ruff-BAFFC9?logo=python&logoColor=white">
-  <img src="https://img.shields.io/badge/License-MIT-E2E2E2">
-  <img src="https://img.shields.io/badge/Python-3.12-FFD1A4?logo=python&logoColor=white">
-  <img src="https://img.shields.io/badge/Dashboard-Streamlit-B2B2FD?logo=streamlit&logoColor=white">
-  <img src="https://img.shields.io/badge/Coverage-30%25-FFB3BA?logo=codecov&logoColor=white">
-  <a href="https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection">
-    <img src="https://img.shields.io/badge/Model-AlgoShield-FFB3BA?logo=huggingface&logoColor=white">
-  </a>
   <a href="https://huggingface.co/spaces/odeliyach/algoscope">
-    <img src="https://img.shields.io/badge/Live%20Demo-Spaces-FFFFBA?logo=huggingface&logoColor=white">
+    <img src="https://img.shields.io/badge/Live%20Demo-Spaces-FFFFBA?logo=huggingface&logoColor=333333">
   </a>
+  <a href="https://huggingface.co/odeliyach/AlgoShield-Algospeak-Detection">
+    <img src="https://img.shields.io/badge/Model-AlgoShield-FF968A?logo=huggingface&logoColor=white">
+  </a>
+  <img src="https://img.shields.io/badge/Dashboard-Streamlit-B2B2FD?logo=streamlit&logoColor=white">
+  <img src="https://img.shields.io/github/actions/workflow/status/odeliyach/Algoscope/ci.yml?branch=main&label=Build&color=BAFFC9&logo=github-actions&logoColor=white">
+  <img src="https://img.shields.io/badge/Linting-Ruff-D4A5FF?logo=python&logoColor=white">
+  <img src="https://img.shields.io/badge/Coverage-30%25-FFB3BA?logo=codecov&logoColor=white">
+  <img src="https://img.shields.io/badge/Python-3.12-FFD1A4?logo=python&logoColor=white">
+  <img src="https://img.shields.io/badge/License-MIT-E2E2E2">
 </p>
 
 *Odeliya Charitonova · 2026*
