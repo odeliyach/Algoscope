@@ -3,31 +3,38 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from _pytest.monkeypatch import MonkeyPatch
 from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from app.model import ToxicityClassifier
 
 
-@pytest.fixture()
-def classifier(monkeypatch) -> "ToxicityClassifier":
+@pytest.fixture(scope="session")
+def classifier() -> "ToxicityClassifier":
     # Ensure environment variables are available before loading the model
     load_dotenv()
     from app.model import ToxicityClassifier
 
+    mp = MonkeyPatch()
+
     # Avoid external downloads during tests by stubbing the model loader
     def _fake_load(self: "ToxicityClassifier") -> None:
         # Minimal stub: fixed response is sufficient for the smoke test and avoids HF downloads.
-        self._pipeline = (
-            lambda text, **kwargs: [{"label": "toxic", "score": 0.5}]
-            if isinstance(text, str)
-            else []
-        )
+        def fake_pipeline(text, **kwargs):
+            if isinstance(text, (list, tuple)):
+                return [{"label": "toxic", "score": 0.5} for _ in text]
+            if isinstance(text, str):
+                return [{"label": "toxic", "score": 0.5}]
+            return []
 
-    monkeypatch.setattr(ToxicityClassifier, "_load_model", _fake_load)
+        self._pipeline = fake_pipeline
 
-    # Function-scoped so each test gets the stubbed loader without sharing state
-    return ToxicityClassifier()
+    mp.setattr(ToxicityClassifier, "_load_model", _fake_load)
+
+    instance = ToxicityClassifier()
+    yield instance
+    mp.undo()
 
 
 def test_classifier_predicts(classifier: ToxicityClassifier) -> None:
