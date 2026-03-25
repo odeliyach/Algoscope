@@ -28,7 +28,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}-lintcov
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
@@ -64,9 +64,10 @@ jobs:
           BLUESKY_HANDLE: "test@test.com"
           BLUESKY_PASSWORD: "testpassword"
         run: |
-          python -m pytest tests/ -v --tb=short --cov=app --cov=tests --cov-report=xml
+          python -m pytest tests/ -v --tb=short --cov=app --cov-report=xml
 
       - name: Collect lcov coverage
+        if: ${{ hashFiles('**/*.gcda', '**/*.gcno') != '' }}
         run: |
           lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
 
