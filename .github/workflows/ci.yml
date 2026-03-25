@@ -39,10 +39,14 @@ jobs:
         run: ruff check app/ dashboard.py tests/
 
       - name: C style (clang-format)
-        if: hashFiles('**/*.c', '**/*.h') != ''
         run: |
+          files=$(find . -name "*.c" -o -name "*.h")
+          if [ -z "$files" ]; then
+            echo "No C sources found; skipping clang-format."
+            exit 0
+          fi
           clang-format --version
-          clang-format --dry-run --Werror $(find . -name "*.c" -o -name "*.h")
+          clang-format --dry-run --Werror $files
 
       # WHY check imports before running tests: a missing __init__.py or
       # circular import will cause a cryptic error in Spaces. This catches it early.
@@ -67,9 +71,15 @@ jobs:
           python -m pytest tests/ -v --tb=short --cov=app --cov=dashboard --cov-report=xml
 
       - name: Collect lcov coverage
-        if: hashFiles('**/*.gcda', '**/*.gcno') != ''
+        id: lcov
         run: |
-          lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
+          if find . -name "*.gcda" -o -name "*.gcno" | grep -q .; then
+            lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No gcda/gcno files found; skipping lcov capture."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload Python coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -80,7 +90,7 @@ jobs:
           fail_ci_if_error: true
 
       - name: Upload C coverage to Codecov
-        if: hashFiles('coverage.info') != ''
+        if: steps.lcov.outputs.generated == 'true'
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.info
