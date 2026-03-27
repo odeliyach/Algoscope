@@ -36,8 +36,20 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("AlgoScope API starting up")
-   # classifier = ToxicityClassifier()
-    logger.info("ToxicityClassifier ready")
+    # WHY load model in lifespan instead of module scope:
+    # If the model download fails at module import time, uvicorn crashes before
+    # binding to port 7860, so HuggingFace Spaces sees a dead container with no
+    # logs. Loading here means the server is already up and logging when the
+    # failure happens, making it debuggable.
+    try:
+        classifier._load_model()
+        logger.info("ToxicityClassifier ready")
+    except Exception as exc:
+        # WHY catch and warn instead of re-raise:
+        # A model load failure should degrade gracefully (predict returns defaults)
+        # not take down the entire API. The /health endpoint stays alive so HF
+        # doesn't restart-loop the container.
+        logger.warning("Model load failed — predictions will return defaults: %s", exc)
     try:
         seed_if_empty()
         logger.info("DB seed check complete")
