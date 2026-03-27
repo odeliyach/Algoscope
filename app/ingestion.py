@@ -188,7 +188,8 @@ def fetch_posts(
                     cleaned = preprocess_text(raw_text)
                     if not cleaned:
                         continue
-                    all_texts.append(cleaned)
+                    post_ts = getattr(post.record, "created_at", None)
+                    all_texts.append((cleaned, post_ts))
 
             logger.info("Fetched %d posts before deduplication", len(all_texts))
 
