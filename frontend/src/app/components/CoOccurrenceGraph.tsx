@@ -129,7 +129,12 @@ function useForceSimulation(
         const dx = t.x - s.x;
         const dy = t.y - s.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const naturalLen = EDGE_LEN / (1 + e.weight * 0.04);
+        // WHY Math.min cap: with real data edge weights can be 50–500+
+        // (co-occurrence count across hundreds of posts). Without capping,
+        // naturalLen collapses to ~3px, pulling all nodes into a single blob.
+        // Capping at 8 keeps naturalLen in the range 115–140px regardless of
+        // how large the real-data weights get.
+        const naturalLen = EDGE_LEN / (1 + Math.min(e.weight, 8) * 0.04);
         const force = (dist - naturalLen) * SPRING;
         const fx = safeNum((dx / dist) * force);
         const fy = safeNum((dy / dist) * force);
