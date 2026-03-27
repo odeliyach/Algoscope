@@ -173,7 +173,7 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
             "label": label,
             "score": score,
             "platform": "bluesky",
-            "created_at": post_ts or batch_ts_iso,
+            "created_at": batch_ts_iso,            
             "query_term": matched_term,
         })
 
