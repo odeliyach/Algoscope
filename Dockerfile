@@ -6,7 +6,7 @@ FROM node:20-slim AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile
-COPY frontend/ .
+COPY frontend/. .
 RUN pnpm build
 
 # ── Stage 2: Python runtime ────────────────────────────────────────────────────
