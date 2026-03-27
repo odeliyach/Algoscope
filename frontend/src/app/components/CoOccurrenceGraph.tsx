@@ -23,7 +23,7 @@ interface Props {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const W = 820;
 const H = 540;
-const REPULSION = 2200;
+const REPULSION = 3800;
 const SPRING = 0.035;
 const EDGE_LEN = 140;
 const GRAVITY = 0.01;
@@ -147,14 +147,11 @@ function useForceSimulation(
         n.vy *= DAMPING;
         n.x = safeNum(n.x + n.vx, CENTER_X);
         n.y = safeNum(n.y + n.vy, CENTER_Y);
-        // WHY sqrt + tight cap: log1p still lets very high-frequency words
-        // (e.g. "yeah", "his") reach 32px radius, visually dominating the canvas.
-        // Math.sqrt compresses the range much more aggressively — a word with
-        // freq=1000 gets the same radius as one with freq=100 since sqrt(1000)
-        // ≈ 31.6 and sqrt(100) = 10, but we cap at +10px over the 6px base,
-        // giving a range of 6–16px. This keeps all nodes readable and roughly
-        // equal in visual weight while still showing relative frequency.
-        const r = 6 + Math.min(Math.sqrt(n.frequency ?? 1) * 0.6, 10);
+        // WHY log scale: linear sizing (freq * 0.25) lets high-frequency common
+        // words (e.g. "yeah", "his") grow to 10x the size of algospeak terms,
+        // dominating the canvas. Math.log compresses the range so all nodes
+        // stay visually comparable. Min 8px, max ~32px regardless of frequency.
+        const r = 5 + Math.min(Math.log1p(n.frequency ?? 1) * 1.8, 12);
         n.x = Math.max(r + 40, Math.min(W - r - 40, n.x));
         n.y = Math.max(r + 20, Math.min(H - r - 20, n.y));
       }
@@ -457,7 +454,7 @@ function GraphCanvas({
                   key={`${e.source}--${e.target}`}
                   x1={s.x} y1={s.y} x2={t.x} y2={t.y}
                   stroke={edgeColor(sNode.toxicRatio, tNode.toxicRatio, e.weight)}
-                  strokeWidth={1 + e.weight * 0.12}
+                  strokeWidth={0.5 + Math.min(Math.log1p(e.weight) * 0.5, 2.5)}
                   opacity={hoveredNode ? (isHighlighted ? 0.9 : 0.1) : 0.7}
                   style={{ transition: "opacity 0.2s" }}
                 />
@@ -468,10 +465,9 @@ function GraphCanvas({
             {positions.map(node => {
               const freq = node.frequency ?? 1;
               const tRatio = node.toxicRatio ?? 0.5;
-              // WHY sqrt: matches the physics loop formula so the rendered
-              // circle matches the collision radius. Range 6–16px keeps all
-              // nodes readable without any single node dominating the canvas.
-              const size = 6 + Math.min(Math.sqrt(freq) * 0.6, 10);
+              // WHY log1p: same formula as the physics loop so the rendered
+              // circle matches the collision radius used for simulation.
+              const size = 5 + Math.min(Math.log1p(freq) * 1.8, 12);
               const color = nodeColor(tRatio);
               const isHovered = hoveredNode === node.id;
               const isDimmed = !!(hoveredNode && !isHovered);
