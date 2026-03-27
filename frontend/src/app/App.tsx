@@ -74,6 +74,12 @@ export default function App() {
         if (posts.length > 0) {
           setAllPosts(posts);
           setBatchPosts(posts.slice(0, 25));
+          // WHY set totalAnalyzed from DB count on mount:
+          // The counter starts at 0 but the DB already has posts from previous
+          // sessions. Without this, the display jumps DOWN from 200 (DB load)
+          // to 25 (first fetch) because totalAnalyzed || totalPosts picks
+          // totalPosts on load, then switches to the smaller totalAnalyzed.
+          setTotalAnalyzed(posts.length);
         } else {
           // Backend is healthy but DB is empty — show mock data as a placeholder
           const mock = generateMockPosts(ALGOSPEAK_TERMS.slice(0, 4), 30);
