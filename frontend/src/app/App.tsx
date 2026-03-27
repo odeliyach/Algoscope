@@ -120,9 +120,18 @@ export default function App() {
       }
 
       setBatchPosts(newBatch);
-      setTotalAnalyzed(prev => prev + newBatch.length);
       setAllPosts(prev => {
         // Merge new posts in front, deduplicate by id, keep max 500
+        const existingIds = new Set(prev.map(p => String(p.id)));
+        const trulyNew = newBatch.filter(p => !existingIds.has(String(p.id)));
+        // WHY count only trulyNew here instead of newBatch.length:
+        // The backend may return posts already present in the DB (from the
+        // initial seed or a previous fetch). Counting newBatch.length directly
+        // caused the counter to jump to e.g. 229 instead of accumulating
+        // (200 → 230 → 229 bug). We compute the truly-new count inside the
+        // setAllPosts updater so it uses the same prev snapshot, guaranteeing
+        // the dedup logic and the counter increment are always in sync.
+        setTotalAnalyzed(c => c + trulyNew.length);
         const idSet = new Set(newBatch.map(p => String(p.id)));
         const filtered = prev.filter(p => !idSet.has(String(p.id)));
         return [...newBatch, ...filtered].slice(0, 500);
