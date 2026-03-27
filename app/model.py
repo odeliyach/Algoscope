@@ -57,10 +57,12 @@ class ToxicityClassifier:
             )
             logger.info("Model loaded successfully")
         except Exception as exc:
+            # WHY warn instead of raise: a RuntimeError here propagates up to
+            # uvicorn's import phase and kills the process before HF can capture
+            # any logs. Logging and leaving _pipeline=None lets the server stay
+            # alive; predict() already handles pipeline=None gracefully.
             logger.error("Failed to load model: %s", exc, exc_info=True)
-            raise RuntimeError(
-                f"Failed to load ToxicityClassifier model: {exc}"
-            ) from exc
+            self._pipeline = None
 
     def predict(self, text: str) -> dict[str, Any]:
         """
