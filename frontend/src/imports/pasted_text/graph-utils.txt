@@ -1,0 +1,214 @@
+"""
+Graph utilities for exploring algospeak co-occurrence patterns.
+
+Co-occurrence graphs are a classic NLP exploratory tool: by connecting words
+that frequently appear together, we can surface clusters of related slang
+or emergent euphemisms that would be hard to spot from raw text alone.
+"""
+
+from __future__ import annotations
+
+import re
+from itertools import combinations
+from typing import Dict, List
+
+import networkx as nx
+from pyvis.network import Network
+
+from app.database import get_recent_posts
+
+# All words to exclude from the graph. Centralizing here makes it easy to tune.
+STOPWORDS = {
+    # English function words
+    "the", "and", "or", "but", "if", "then", "else", "when", "where",
+    "what", "which", "who", "whom", "this", "that", "these", "those",
+    "a", "an", "of", "in", "on", "for", "to", "from", "by", "with",
+    "at", "as", "is", "am", "are", "was", "were", "be", "been", "being",
+    "it", "its", "he", "she", "they", "them", "we", "us", "you", "your",
+    "yours", "i", "me", "my", "mine", "our", "ours", "their", "theirs",
+    "do", "does", "did", "doing", "done", "have", "has", "had",
+    "will", "would", "can", "could", "should", "must", "may", "might",
+    "just", "like", "so", "very", "too", "not", "no", "yes",
+    "there", "here", "than", "then", "also", "even", "more", "most",
+    "get", "got", "go", "going", "say", "said", "out", "now", "day",
+    "because", "some", "people", "love", "social", "really", "while",
+    "think", "know", "want", "see", "make", "take", "come", "look",
+    "good", "new", "first", "last", "long", "great", "little", "own",
+    "right", "big", "high", "small", "large", "next", "early", "old",
+    "well", "still", "way", "every", "never", "always", "much", "need",
+    "feel", "put", "keep", "let", "ask", "seem", "show", "try", "call",
+    "back", "other", "free", "real", "best", "true", "about", "after",
+    "again", "dont", "isnt", "cant", "wont", "didnt", "doesnt", "youre",
+    "theyre", "whats", "thats", "dont", "thing", "things", "time",
+    # Spanish function words (common on Bluesky)
+    "de", "que", "con", "como", "para", "una", "uno", "los", "las",
+    "por", "del", "sus", "pero", "todo", "esta", "este", "son", "hay",
+    "nos", "han", "fue", "ser", "ver", "vez", "sin", "sobre", "entre",
+    "cuando", "bien", "solo", "puede", "tiene", "desde", "hasta",
+    # Web / file tokens
+    "jpg", "jpeg", "png", "gif", "webp", "www", "http", "https",
+    "com", "org", "net", "html", "php", "amp", "via", "bit",
+    # WHY these extra tokens: bare domains (e.g. "epsteinweb.org/parts")
+    # pass the URL regex (which only matches http:// prefix). These
+    # fragments appear as high-weight graph nodes without this filter.
+    "parts", "epsteinweb", "files", "watch", "check",
+}
+
+
+def _tokenize(text: str) -> List[str]:
+    """
+    Lightweight tokenizer for short social posts.
+    Drops stopwords, short tokens, and tokens with digits.
+    """
+    text = text.lower()
+    raw_tokens = re.split(r"\W+", text)
+    tokens = []
+    for tok in raw_tokens:
+        if not tok or len(tok) <= 2:
+            continue
+        if any(ch.isdigit() for ch in tok):
+            continue
+        if tok in STOPWORDS:
+            continue
+        tokens.append(tok)
+    return tokens
+
+
+def build_cooccurrence_graph(min_cooccurrence: int = 2) -> nx.Graph:
+    """
+    Build a word co-occurrence graph from all posts in the database.
+
+    WHY co-occurrence graphs for algospeak: slang evolves in clusters.
+    'unalive' tends to appear with 'suicide', 'depression', 'mental'.
+    Mapping these clusters reveals semantic neighborhoods of evasive language
+    that a simple keyword list would miss.
+    """
+    posts = get_recent_posts(limit=10_000_000)
+
+    G = nx.Graph()
+    word_counts: Dict[str, int] = {}
+    toxic_word_counts: Dict[str, int] = {}
+
+    for row in posts:
+        text = (row.get("text") or "").strip()
+        label = (row.get("label") or "non-toxic").lower()
+        if not text:
+            continue
+        tokens = _tokenize(text)
+        if not tokens:
+            continue
+
+        # Use a set so repeated words in one post don't inflate edge weights
+        unique_words = set(tokens)
+
+        for w in unique_words:
+            word_counts[w] = word_counts.get(w, 0) + 1
+            if label == "toxic":
+                toxic_word_counts[w] = toxic_word_counts.get(w, 0) + 1
+
+        for w1, w2 in combinations(sorted(unique_words), 2):
+            if G.has_edge(w1, w2):
+                G[w1][w2]["weight"] += 1
+            else:
+                G.add_edge(w1, w2, weight=1)
+
+    # Remove weak edges and isolated nodes
+    G.remove_edges_from([
+        (u, v) for u, v, d in G.edges(data=True)
+        if d.get("weight", 0) < min_cooccurrence
+    ])
+    G.remove_nodes_from(list(nx.isolates(G)))
+
+    # Attach node metadata for visualization
+    for word, count in word_counts.items():
+        if word not in G:
+            continue
+        G.nodes[word]["count"] = count
+        G.nodes[word]["toxic_count"] = toxic_word_counts.get(word, 0)
+
+    # STEP 1: Filter to algospeak neighborhood FIRST.
+    # WHY order matters: filtering before top-30 ensures we get the most
+    # frequent *algospeak-related* words, not the most frequent generic words.
+    from app.ingestion import ALGOSPEAK_QUERIES
+    seed_words = {w for q in ALGOSPEAK_QUERIES for w in q.lower().split()}
+
+    relevant = set()
+    for seed in seed_words:
+        if seed in G:
+            relevant.add(seed)
+            relevant.update(G.neighbors(seed))
+
+    if relevant:
+        G = G.subgraph(relevant).copy()
+
+    # STEP 2: Take top 30 by frequency from the algospeak neighborhood
+    if G.number_of_nodes() > 30:
+        top_nodes = sorted(
+            G.nodes(data=True),
+            key=lambda x: x[1].get("count", 0),
+            reverse=True,
+        )[:30]
+        G = G.subgraph({n[0] for n in top_nodes}).copy()
+
+    return G
+
+
+def graph_to_pyvis(graph: nx.Graph, toxic_only: bool = False) -> str:
+    """
+    Convert a NetworkX graph into interactive Pyvis HTML.
+    Physics disabled for instant rendering (animation caused 2min load times).
+    """
+    net = Network(height="600px", width="100%", directed=False, notebook=False)
+    net.set_options('''{
+      "physics": {"enabled": false},
+      "configure": {"enabled": false},
+      "layout": {"randomSeed": 42}
+    }''')
+
+    included_nodes = set()
+    for node, data in graph.nodes(data=True):
+        count = int(data.get("count", 1) or 1)
+        toxic_count = int(data.get("toxic_count", 0) or 0)
+        toxic_ratio = toxic_count / count if count else 0.0
+
+        if toxic_only and toxic_count == 0:
+            continue
+
+        # 3-color system: red=mostly toxic, orange=mixed, green=mostly benign
+        # More informative than binary because it shows usage context gradient
+        if toxic_ratio > 0.7:
+            color = "#ff4b4b"
+        elif toxic_ratio >= 0.4:
+            color = "#ff9f43"
+        else:
+            color = "#2ecc71"
+
+        net.add_node(node, label=node, color=color, value=count)
+        included_nodes.add(node)
+
+    for u, v, data in graph.edges(data=True):
+        if u not in included_nodes or v not in included_nodes:
+            continue
+        net.add_edge(u, v, value=int(data.get("weight", 1) or 1))
+
+    # Replace local file reference that breaks in Streamlit's sandboxed iframe
+    html = net.generate_html()
+
+    center_script = """
+    <script>
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        if (typeof network !== 'undefined') {
+          network.fit({animation: false});
+        }
+      }, 300);
+    });
+    </script>
+    """
+    html = html.replace("</body>", center_script + "</body>")
+
+    html = html.replace(
+        '<script src="lib/bindings/utils.js"></script>',
+        '<script>function neighbourhoodHighlight(){} function filterHighlight(){} function resetFilter(){}</script>'
+    )
+    return html

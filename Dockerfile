@@ -1,7 +1,18 @@
+# ── Stage 1: Build React frontend ─────────────────────────────────────────────
+# WHY multi-stage: Node.js is only needed to compile React.
+# The final image doesn't include Node — just the compiled JS/CSS.
+# Multi-stage keeps the production image ~150MB vs ~800MB with Node included.
+FROM node:20-slim AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+COPY frontend/ .
+RUN pnpm build
+
+# ── Stage 2: Python runtime ────────────────────────────────────────────────────
 # WHY python:3.12-slim: full image is 1GB+, slim is ~150MB.
 # We only need the runtime, not build tools.
 FROM python:3.12-slim
-
 WORKDIR /app
 
 # WHY copy requirements first: Docker layer caching.
@@ -12,7 +23,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code after dependencies (changes more often)
 COPY app/ ./app/
-COPY dashboard.py .
+
+# Copy only the compiled React output from Stage 1 — not Node or source files
+COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
 # WHY non-root user: running as root means a container escape gives full
 # host access. Two lines is the industry baseline for container security.
@@ -20,11 +33,7 @@ RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
 # WHY 7860: HuggingFace Docker Spaces expect port 7860 by default.
-# Using 8501 (Streamlit's default) causes "Preparing Space" to hang
-# because HF's proxy never gets a response on the expected port.
 EXPOSE 7860
 
-CMD ["streamlit", "run", "dashboard.py", \
-     "--server.port=7860", \
-     "--server.address=0.0.0.0", \
-     "--server.headless=true"]
+# WHY uvicorn instead of streamlit: FastAPI now serves both API and static files
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]

@@ -1,5 +1,5 @@
-# WHY GitHub Actions CI: catches broken imports and syntax errors before
-# they reach HuggingFace Spaces. Runs on every push to main.
+# WHY GitHub Actions CI: catches broken imports, TypeScript errors, and test
+# failures before they reach HuggingFace Spaces. Runs on every push to main.
 name: CI
 
 on:
@@ -37,7 +37,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Cache pip downloads — speeds up subsequent runs significantly
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -47,11 +46,11 @@ jobs:
             ${{ runner.os }}-pip-${{ steps.setup-python.outputs.python-version }}-
             ${{ runner.os }}-pip-
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Python lint (ruff)
-        run: ruff check app/ dashboard.py tests/
+        run: ruff check app/ tests/
 
       - name: C style (clang-format)
         if: steps.detect-c.outputs.present == 'true'
@@ -60,35 +59,53 @@ jobs:
           clang-format --version
           printf '%s\0' "${files[@]}" | xargs -0 clang-format --dry-run --Werror
 
-      # WHY check imports before running tests: a missing __init__.py or
-      # circular import will cause a cryptic error in Spaces. This catches it early.
-      - name: Check all modules import cleanly
+      - name: Check all Python modules import cleanly
         run: |
           python -c "from app.model import ToxicityClassifier"
-          python -c "from app.database import get_recent_posts, save_post"
+          python -c "from app.database import get_recent_posts, save_post, seed_if_empty"
           python -c "from app.graph import build_cooccurrence_graph"
           python -c "from app.ingestion import ALGOSPEAK_QUERIES"
-
-      # WHY syntax check dashboard separately: Streamlit apps can't be imported
-      # like modules — use ast.parse to verify syntax without executing.
-      - name: Check dashboard syntax
-        run: python -c "import ast; ast.parse(open('dashboard.py').read()); print('OK')"
+          python -c "from app.main import app"
 
       - name: Run tests with coverage
         env:
-          # Provide dummy credentials so .env-dependent code doesn't crash
           BLUESKY_HANDLE: "test@test.com"
           BLUESKY_PASSWORD: "testpassword"
           PYTHONPATH: .
         run: |
-          # Track coverage for both the FastAPI app code and the Streamlit dashboard entrypoint
-          python -m pytest tests/ -v --tb=short --cov=app --cov=dashboard.py --cov-report=xml
+          python -m pytest tests/ -v --tb=short --cov=app --cov-report=xml
+
+      # ── Frontend build verification ──────────────────────────────────────────
+      # WHY build React in CI: catches TypeScript errors and missing imports
+      # before they cause a silent failure during Docker build on HuggingFace.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend (verify no TypeScript errors)
+        working-directory: frontend
+        run: pnpm build
 
       - name: Collect lcov coverage
         id: lcov
         run: |
           if find . -name "*.gcda" -o -name "*.gcno" | grep -q .; then
-            # Keep --ignore-errors unused to avoid lcov exit code 25 (lcov raises this when trace files are missing for sources, expected when no C/Unity coverage is produced)
             lcov --capture --directory . --output-file coverage.info --ignore-errors unused --no-external
             echo "generated=true" >> "$GITHUB_OUTPUT"
           else

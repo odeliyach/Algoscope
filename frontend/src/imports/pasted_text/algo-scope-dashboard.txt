@@ -1,0 +1,954 @@
+"""
+AlgoScope Streamlit dashboard for live algospeak/toxicity detection.
+"""
+
+from __future__ import annotations
+
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta
+from html import escape
+
+from dotenv import load_dotenv
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+from app.database import get_recent_posts, save_post
+from app.graph import build_cooccurrence_graph, graph_to_pyvis
+from app.ingestion import ALGOSPEAK_QUERIES, fetch_posts
+from app.model import ToxicityClassifier
+
+load_dotenv()
+
+# Singleton classifier — loads once, survives all reruns.
+# DistilBERT takes ~2s to load; without this every button click reloads it.
+classifier = ToxicityClassifier()
+
+
+def _parse_dt(ts_str) -> datetime | None:
+    """
+    Safely parse a timestamp string to datetime.
+    WHY: SQLite stores timestamps as plain text with no timezone info.
+    Without explicit normalization, timezone-naive comparisons silently
+    give wrong results — a common subtle data bug in production.
+    """
+    try:
+        s = str(ts_str).replace("Z", "").replace(" ", "T")
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="AlgoScope — Live Algospeak Detection",
+        layout="wide",
+        initial_sidebar_state="expanded",  # WHY: prevents sidebar from starting closed
+    )
+
+    st.markdown(
+        """
+        <style>
+        [data-testid="stAppViewContainer"] { background: #0a0d14; color: #e8eaf0; }
+        [data-testid="stSidebar"] { background: #0d1120; }
+        /* Hide toolbar/menu but keep header for sidebar toggle */
+        [data-testid="stToolbar"] { display: none !important; }
+        [data-testid="stDecoration"] { display: none !important; }
+        #MainMenu { display: none !important; }
+        footer { display: none !important; }
+        /* Hide Streamlit header entirely — we use our own JS toggle button */
+        [data-testid="stHeader"] { display: none !important; }
+        [data-testid="stMain"] { overflow-y: auto !important; }
+        /* Kill every source of top-gap Streamlit adds */
+        [data-testid="block-container"],
+        [data-testid="stMainBlockContainer"],
+        .main .block-container,
+        .block-container { padding-top: 0.3rem !important; max-width: 100% !important; }
+        [data-testid="stSidebarContent"] { padding-top: 0 !important; }
+        body { color: #e8eaf0; }
+        .stButton>button {
+            background: linear-gradient(135deg, #ff4b4b, #ff8c42);
+            color: white; border: none; border-radius: 8px; font-weight: 600;
+        }
+        .stTabs [data-baseweb="tab-list"] { background: transparent; border-bottom: 1px solid #1e2540; }
+        .stTabs [data-baseweb="tab"] { color: #5a6080; background: transparent; }
+        .stTabs [aria-selected="true"] { color: #ff6b3d !important; border-bottom: 2px solid #ff6b3d !important; }
+        .algoscope-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0.5rem 0 0.75rem 0;
+            border-bottom: 1px solid #1e2540; margin-bottom: 1rem;
+        }
+        .algoscope-header-left { display: flex; align-items: center; gap: 0.8rem; }
+        .algoscope-logo {
+            width: 32px; height: 32px; border-radius: 8px;
+            background: linear-gradient(135deg, #ff4b4b, #ff8c42);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; color: #fff; font-size: 1.1rem;
+            box-shadow: 0 0 14px rgba(255,76,76,0.45);
+        }
+        .algoscope-title-text { font-size: 1.8rem; font-weight: 800; color: #fff; line-height: 1.1; }
+        .algoscope-subtitle { font-size: 0.85rem; color: #9aa0c0; }
+        .algoscope-header-right { text-align: right; }
+        .algoscope-live {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            padding: 0.2rem 0.6rem; border-radius: 999px;
+            background: rgba(46,204,113,0.08); border: 1px solid rgba(46,204,113,0.2);
+            margin-bottom: 0.25rem;
+        }
+        .algoscope-live-dot {
+            width: 7px; height: 7px; border-radius: 50%; background: #2ecc71;
+            box-shadow: 0 0 6px rgba(46,204,113,0.9);
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        .algoscope-live-text { color: #2ecc71; font-weight: 700; letter-spacing: 1px; font-size: 0.7rem; }
+        .algoscope-meta { font-size: 0.75rem; color: #6f7695; }
+        .algoscope-meta a { color: #a6b0ff; text-decoration: none; }
+        .sidebar-section-label {
+            font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1.2px;
+            color: #3a4060; margin-top: 0.5rem; margin-bottom: 0.3rem;
+        }
+        .term-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: #141826; border: 1px solid #1e2540; border-radius: 8px;
+            padding: 6px 10px; margin-bottom: 5px;
+        }
+        .term-row-left { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #c8cce0; }
+        .term-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .term-pct { font-size: 0.7rem; color: #3a4060; }
+        .card {
+            background: #0d1120; border: 1px solid #1e2540;
+            border-radius: 10px; padding: 0.75rem 0.9rem;
+        }
+        .metric-label {
+            font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px;
+            color: #3a4060; margin-bottom: 0.35rem;
+        }
+        .metric-value { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
+        .metric-sub { font-size: 0.72rem; color: #8a90ad; margin-top: 0.2rem; }
+        .post-list { max-height: 320px; overflow-y: auto; }
+        .post-card {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.55rem 0.4rem; border-bottom: 1px solid #141826;
+        }
+        .score-badge {
+            min-width: 48px; text-align: center; font-size: 0.72rem;
+            font-weight: 700; border-radius: 6px; padding: 0.2rem 0.3rem; flex-shrink: 0;
+        }
+        .score-low  { background: rgba(46,204,113,0.15); color: #2ecc71; }
+        .score-mid  { background: rgba(255,159,67,0.15); color: #ff9f43; }
+        .score-high { background: rgba(255,75,75,0.18);  color: #ff4b4b; }
+        .post-text  { flex: 1; font-size: 0.78rem; color: #c8cce0; }
+        .term-pill {
+            font-size: 0.68rem; padding: 0.12rem 0.4rem; border-radius: 999px;
+            background: rgba(155,127,212,0.14); color: #c3a6ff;
+            border: 1px solid rgba(155,127,212,0.5); white-space: nowrap;
+        }
+        .custom-term-pill {
+            display: inline-flex; align-items: center; gap: 0.2rem;
+            padding: 0.1rem 0.4rem; border-radius: 999px;
+            background: rgba(155,127,212,0.1); color: #c3a6ff;
+            border: 1px solid rgba(155,127,212,0.5);
+            font-size: 0.68rem; margin: 2px 3px 0 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Header ─────────────────────────────────────────────────────────────────
+    # WHY st.components.v1.html: st.markdown strips onclick for security.
+    # components.html renders inside an iframe, so JS runs freely and can
+    # reach window.parent.document to click Streamlit's native sidebar button.
+    import streamlit.components.v1 as components
+    components.html("""
+        <style>
+        body { margin: 0; padding: 0; background: transparent; }
+        #toggle-btn {
+            position: fixed;
+            top: 8px;
+            left: 8px;
+            z-index: 999999;
+            width: 34px;
+            height: 34px;
+            background: #1a1f35;
+            border: 1px solid #2e3560;
+            border-radius: 7px;
+            color: #e8eaf0;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #toggle-btn:hover { background: #252b4a; border-color: #ff6b3d; color: #ff6b3d; }
+        </style>
+        <button id="toggle-btn" onclick="
+            var d = window.parent.document;
+            var btn = d.querySelector('[data-testid=stSidebarCollapseButton] button')
+                   || d.querySelector('[data-testid=stSidebarNavCollapseButton] button')
+                   || d.querySelector('button[kind=header]');
+            if (btn) btn.click();
+        ">&#9776;</button>
+    """, height=50, scrolling=False)
+
+    st.markdown(
+        """
+        <div class="algoscope-header">
+          <div class="algoscope-header-left">
+            <div class="algoscope-logo">A</div>
+            <div>
+              <div class="algoscope-title-text">AlgoScope</div>
+              <div class="algoscope-subtitle">Real-time algospeak &amp; toxicity intelligence on Bluesky</div>
+            </div>
+          </div>
+          <div class="algoscope-header-right">
+            <div class="algoscope-live">
+              <span class="algoscope-live-dot"></span>
+              <span class="algoscope-live-text">LIVE</span>
+            </div>
+            <div class="algoscope-meta">
+              by Odeliya Charitonova <br/>
+              <a href="https://github.com/odeliyach/Algoscope" target="_blank">
+                github.com/odeliyach/Algoscope
+              </a>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Session state init ─────────────────────────────────────────────────────
+    # WHY session_state: Streamlit reruns the entire script on every interaction.
+    # Anything that must survive between clicks lives here.
+    defaults = {
+        "analyzed_results": [],
+        "just_fetched": False,
+        "graph_html": None,
+        "custom_terms": [],
+        "selected_queries": list(ALGOSPEAK_QUERIES[:3]),
+        "fetch_stats": None,
+        "auto_refresh_ran": False,
+        "auto_trigger_fetch": False,
+        "fetch_message": None,
+        "last_min_cooc": 3,
+        "sidebar_open": True,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    # ── Sidebar ────────────────────────────────────────────────────────────────
+    with st.sidebar:
+        # ── Tracked terms display (styled pills like the mockup) ───────────────
+        st.markdown('<div class="sidebar-section-label">Tracked terms</div>', unsafe_allow_html=True)
+
+        # Build toxic-ratio per term from DB history for the sidebar display
+        history_for_terms = get_recent_posts(limit=1000)
+        term_toxic_ratio: dict[str, float] = {}
+        for term in ALGOSPEAK_QUERIES:
+            term_posts = [r for r in history_for_terms if term in (r.get("text") or "").lower()]
+            if term_posts:
+                toxic_n = sum(1 for r in term_posts if (r.get("label") or "").lower() == "toxic")
+                term_toxic_ratio[term] = toxic_n / len(term_posts)
+            else:
+                term_toxic_ratio[term] = 0.0
+
+        selected_queries = st.session_state.selected_queries
+        base_options = list(ALGOSPEAK_QUERIES)
+        extra_options = [t for t in st.session_state.custom_terms if t not in base_options]
+        all_options = base_options + extra_options
+
+        # Show styled term rows for selected terms
+        term_rows_html = []
+        for term in selected_queries:
+            ratio = term_toxic_ratio.get(term, 0.0)
+            pct = int(ratio * 100)
+            if ratio > 0.7:
+                dot_color = "#ff4b4b"
+            elif ratio >= 0.4:
+                dot_color = "#ff8c42"
+            else:
+                dot_color = "#2ecc71"
+            term_rows_html.append(f"""
+            <div class="term-row">
+              <div class="term-row-left">
+                <div class="term-dot" style="background:{dot_color};"></div>
+                <span>{escape(term)}</span>
+              </div>
+              <span class="term-pct">{pct}%</span>
+            </div>""")
+        if term_rows_html:
+            st.markdown("".join(term_rows_html), unsafe_allow_html=True)
+
+        st.markdown('<div class="sidebar-section-label">Algospeak terms</div>', unsafe_allow_html=True)
+        # WHY multiselect over checkboxes: supports the full vocabulary list
+        # and lets analysts add/remove terms without page reload.
+        selected_queries = st.multiselect(
+            "Select terms",
+            options=all_options,
+            default=st.session_state.selected_queries,
+            label_visibility="collapsed",
+        )
+        st.session_state.selected_queries = selected_queries
+
+        # Custom term input — full width input + button below
+        new_term = st.text_input("Add custom term", key="custom_term_input", label_visibility="collapsed",
+                                  placeholder="Add custom term...")
+        add_clicked = st.button("+ Add term", key="add_custom_term", use_container_width=True)
+        if add_clicked and new_term.strip():
+            term = new_term.strip().lower()
+            if term not in st.session_state.custom_terms and term not in base_options:
+                st.session_state.custom_terms.append(term)
+            if term not in st.session_state.selected_queries:
+                st.session_state.selected_queries.append(term)
+            selected_queries = st.session_state.selected_queries
+
+        if st.session_state.custom_terms:
+            pills = "".join(
+                f"<span class='custom-term-pill'>{escape(t)}</span>"
+                for t in st.session_state.custom_terms
+            )
+            st.markdown(pills, unsafe_allow_html=True)
+
+        # ── Threshold ──────────────────────────────────────────────────────────
+        st.markdown('<div class="sidebar-section-label">Threshold</div>', unsafe_allow_html=True)
+        # WHY threshold slider: separates ML policy from model. Operators tune
+        # sensitivity without retraining — standard MLOps pattern.
+        threshold = st.slider("Toxicity threshold", 0.0, 1.0, 0.7, 0.05, label_visibility="collapsed")
+
+        # ── Sampling ───────────────────────────────────────────────────────────
+        st.markdown('<div class="sidebar-section-label">Sampling</div>', unsafe_allow_html=True)
+        limit = st.slider("Number of posts", 5, 100, 25, label_visibility="collapsed")
+
+        # ── Fetch ──────────────────────────────────────────────────────────────
+        st.markdown('<div class="sidebar-section-label">Fetch</div>', unsafe_allow_html=True)
+        auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
+        fetch_button = st.button("Fetch & Analyze", type="primary", use_container_width=True)
+
+        # Auto-refresh countdown
+        if auto_refresh and not st.session_state.auto_refresh_ran and not fetch_button:
+            ph = st.empty()
+            for remaining in range(60, 0, -1):
+                ph.caption(f"Next fetch in: {remaining}s")
+                time.sleep(1)
+            st.session_state.auto_trigger_fetch = True
+            st.session_state.auto_refresh_ran = True
+            st.rerun()  # WHY st.rerun: experimental_rerun removed in Streamlit 1.34
+        if not auto_refresh:
+            st.session_state.auto_refresh_ran = False
+
+        # ── Fetch stats ────────────────────────────────────────────────────────
+        if st.session_state.fetch_stats:
+            s = st.session_state.fetch_stats
+            st.caption(f"Fetched {s['n']} posts in {s['fetch']:.1f}s · Inference: {s['infer']:.1f}s")
+
+    # Graph button/controls defined later inside the graph tab
+    build_graph_button = False
+    min_cooccurrence = st.session_state.last_min_cooc
+
+    # ── Trigger handling ───────────────────────────────────────────────────────
+    if st.session_state.auto_trigger_fetch:
+        fetch_button = True
+        st.session_state.auto_trigger_fetch = False
+
+    # ── Fetch & Analyze ────────────────────────────────────────────────────────
+    if fetch_button:
+        st.session_state.just_fetched = True
+        st.session_state.analyzed_results = []
+
+        with st.spinner("Fetching posts from Bluesky..."):
+            t0 = time.time()
+            effective_query = selected_queries[0] if selected_queries else "toxic"
+            posts = fetch_posts(query=effective_query, limit=limit, queries=selected_queries or None)
+            fetch_time = time.time() - t0
+
+        if posts:
+            t1 = time.time()
+            # WHY predict_batch: one forward pass for all posts — ~50x faster
+            # than looping predict() on CPU (measured: 0.36s vs ~18s for 50 posts).
+            predictions = classifier.predict_batch(posts)
+            infer_time = time.time() - t1
+
+            # WHY store created_at and query_term in session_state:
+            # trend alerts and export both need these fields. Without created_at,
+            # all datetime comparisons return None and alerts never fire.
+            batch_ts = datetime.utcnow().isoformat()
+            for text, pred in zip(posts, predictions):
+                score = float(pred.get("score", 0.0) or 0.0)
+                label = "toxic" if score >= threshold else "non-toxic"
+                # Identify which query term matched this post
+                matched_term = next(
+                    (t for t in (selected_queries or []) if t and t in text.lower()),
+                    selected_queries[0] if selected_queries else ""
+                )
+                save_post(text=text, label=label, score=score, platform="bluesky")
+                st.session_state.analyzed_results.append({
+                    "text": text,
+                    "label": label,
+                    "score": score,
+                    "query_term": matched_term,
+                    "created_at": batch_ts,
+                })
+
+            st.session_state.fetch_stats = {"n": len(posts), "fetch": fetch_time, "infer": infer_time}
+            st.session_state.fetch_message = ("success", f"Done! Analyzed {len(posts)} posts.")
+        else:
+            st.session_state.fetch_stats = {"n": 0, "fetch": fetch_time, "infer": 0.0}
+            st.session_state.fetch_message = ("warning", "No posts fetched. Try again or check your connection.")
+    else:
+        st.session_state.just_fetched = False
+
+
+    # ── Load data ──────────────────────────────────────────────────────────────
+    # WHY limit=10000: using 1000 capped the "Posts analyzed" metric
+    # at 1000 even when the DB had more. High limit shows the real total.
+    history = get_recent_posts(limit=10000)
+    batch_rows = st.session_state.analyzed_results
+    vocab = set(st.session_state.selected_queries or []) | set(st.session_state.custom_terms or [])
+
+    # ── Tabs ───────────────────────────────────────────────────────────────────
+    overview_tab, graph_tab, compare_tab, export_tab = st.tabs(["  Overview  ", "  Co-occurrence Graph  ", "  Term Comparison  ", "  Export  "])
+
+    with overview_tab:
+
+        # Show fetch message inside the tab (not above tabs)
+        if st.session_state.get("fetch_message"):
+            msg_type, msg_text = st.session_state.fetch_message
+            if msg_type == "success":
+                st.success(msg_text)
+            else:
+                st.warning(msg_text)
+            st.session_state.fetch_message = None
+
+        # ── Trend alerts ───────────────────────────────────────────────────────
+        # WHY: simple spike detection — if a term's toxicity rate in the last
+        # hour exceeds 80%, show a red banner. In production you'd use z-scores
+        # or CUSUM control charts; this is the lightweight portfolio version.
+        now_utc = datetime.utcnow()
+        one_hour_ago = now_utc - timedelta(hours=1)
+        alerts = []
+        all_terms_alert = list(set(st.session_state.selected_queries or []) | set(st.session_state.custom_terms or []))
+        for term in all_terms_alert:
+            recent_term = [r for r in history
+                           if term in (r.get("text") or "").lower()
+                           and _parse_dt(r.get("created_at"))
+                           and _parse_dt(r.get("created_at")) >= one_hour_ago]
+            if len(recent_term) >= 3:
+                t_rate = sum(1 for r in recent_term if (r.get("label") or "").lower() == "toxic") / len(recent_term)
+                if t_rate >= 0.80:
+                    alerts.append((term, t_rate, len(recent_term)))
+        for term, t_rate, count in alerts:
+            st.markdown(f"""<div style="background:rgba(255,75,75,0.10);border:1px solid
+                rgba(255,75,75,0.4);border-radius:10px;padding:0.6rem 1rem;
+                margin-bottom:0.5rem;display:flex;align-items:center;gap:0.7rem">
+                <span style="font-size:1.1rem">🚨</span>
+                <span style="color:#ff4b4b;font-weight:700">Spike detected:</span>
+                <span style="color:#e8eaf0"><b>{term}</b> &mdash; {t_rate*100:.0f}%
+                toxic in last hour ({count} posts)</span></div>""",
+                unsafe_allow_html=True)
+
+        # ── Metrics ────────────────────────────────────────────────────────────
+        total_posts = len(history)
+        toxic_posts = sum(1 for r in history if (r.get("label") or "").lower() == "toxic")
+        toxic_rate = (toxic_posts / total_posts * 100.0) if total_posts else 0.0
+        avg_score = (
+            sum(float(r.get("score", 0) or 0) for r in batch_rows) / len(batch_rows)
+            if batch_rows else 0.0
+        )
+
+        term_counts: dict[str, int] = defaultdict(int)
+        for row in batch_rows:
+            txt = (row.get("text") or "").lower()
+            for t in vocab:
+                if t and t in txt:
+                    term_counts[t] += 1
+        top_term = max(term_counts, key=term_counts.get) if term_counts else "—"
+
+        now = datetime.utcnow()
+        yesterday = now - timedelta(hours=24)
+        two_days_ago = now - timedelta(hours=48)
+
+        posts_today = sum(
+            1 for r in history
+            if _parse_dt(r.get("created_at")) and _parse_dt(r["created_at"]) > yesterday
+        )
+        posts_yesterday_n = sum(
+            1 for r in history
+            if _parse_dt(r.get("created_at"))
+            and two_days_ago < _parse_dt(r["created_at"]) <= yesterday
+        )
+        delta_sign = "+" if posts_today >= posts_yesterday_n else ""
+        delta_text = f"{delta_sign}{posts_today - posts_yesterday_n} vs yesterday"
+
+        # WHY compare batch vs prior history instead of today vs yesterday:
+        # All posts in the DB were fetched today, so a day-based comparison
+        # always yields delta=0. Comparing the current batch toxic rate against
+        # everything fetched before it gives a real, meaningful signal —
+        # "is this fetch more toxic than usual?"
+        batch_toxic = sum(1 for r in batch_rows if (r.get("label") or "").lower() == "toxic")
+        batch_rate = (batch_toxic / len(batch_rows) * 100.0) if batch_rows else None
+
+        prior_rows = [r for r in history if r not in batch_rows]
+        prior_toxic = sum(1 for r in prior_rows if (r.get("label") or "").lower() == "toxic")
+        prior_rate = (prior_toxic / len(prior_rows) * 100.0) if prior_rows else None
+
+        if batch_rate is not None and prior_rate is not None:
+            rate_delta = batch_rate - prior_rate
+            delta_color = "#ff4b4b" if rate_delta > 0 else "#2ecc71"
+            delta_arrow = "↑" if rate_delta > 0 else "↓"
+            rate_delta_str = f"{delta_arrow} {abs(rate_delta):.1f}% vs prior"
+        elif batch_rate is not None:
+            rate_delta_str = f"batch: {batch_rate:.1f}%"
+            delta_color = "#ff4b4b" if batch_rate >= 70 else "#ff8c42" if batch_rate >= 40 else "#2ecc71"
+        else:
+            rate_delta_str = "fetch to see delta"
+            delta_color = "#5a6080"
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.markdown(f"""<div class="card">
+              <div class="metric-label">Posts analyzed</div>
+              <div class="metric-value" style="color:#fff">{total_posts}</div>
+              <div class="metric-sub" style="color:#ff6b3d">+{posts_today} today &middot; {delta_text}</div>
+            </div>""", unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""<div class="card">
+              <div class="metric-label">Toxic rate</div>
+              <div class="metric-value" style="color:#ff4b4b">{toxic_rate:.1f}%</div>
+              <div class="metric-sub" style="color:{delta_color}">{rate_delta_str}</div>
+            </div>""", unsafe_allow_html=True)
+        with c3:
+            st.markdown(f"""<div class="card">
+              <div class="metric-label">Avg score (last batch)</div>
+              <div class="metric-value" style="color:#ff8c42">{avg_score:.3f}</div>
+              <div class="metric-sub">Mean toxicity from last fetch</div>
+            </div>""", unsafe_allow_html=True)
+        with c4:
+            st.markdown(f"""<div class="card">
+              <div class="metric-label">Top term</div>
+              <div class="metric-value" style="color:#9b7fd4">{escape(str(top_term))}</div>
+              <div class="metric-sub">Most frequent in last batch</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
+
+        # ── Toxicity over time + Score distribution ────────────────────────────
+        ts_col, hist_col = st.columns([3, 1])
+
+        with ts_col:
+            st.markdown("#### Toxicity over time")
+            buckets: dict = defaultdict(lambda: {"sum": 0.0, "count": 0})
+            for row in history:
+                dt = _parse_dt(row.get("created_at"))
+                if not dt:
+                    continue
+                hour = dt.replace(minute=0, second=0, microsecond=0)
+                score = float(row.get("score", 0) or 0)
+                buckets[hour]["sum"] += score
+                buckets[hour]["count"] += 1
+
+            if buckets:
+                # WHY sort by datetime key not string label: hours like "01:00"
+                # sort alphabetically before "03:00" so without proper datetime
+                # sorting the line jumps backwards across midnight, creating a
+                # visual zigzag. Sorting by the actual datetime object fixes this.
+                # WHY sort by datetime key: ensures chronological order across
+                # midnight. Using datetime objects (not strings) as the x-axis
+                # means Plotly treats it as a real time axis — no more zigzag
+                # when data spans midnight (e.g. 22:00 → 01:00 → 14:00).
+                # WHY fixed 24 buckets: previous approach only showed hours
+                # with data, causing uneven spacing and duplicate labels when
+                # data spanned midnight. A fixed 0-23 hour axis is always
+                # uniform — empty hours show as gaps in the line (connectgaps=False).
+                hour_avgs = {}
+                for dt_key, val in buckets.items():
+                    h = dt_key.hour
+                    # If same hour appears on multiple days, keep the most recent
+                    if h not in hour_avgs or dt_key > max(
+                        k for k in buckets if k.hour == h
+                    ):
+                        hour_avgs[h] = val["sum"] / val["count"]
+
+                x_labels = [f"{h:02d}:00" for h in range(24)]
+                y_vals = [hour_avgs.get(h, None) for h in range(24)]
+                point_colors = [
+                    "#2ecc71" if v is not None and v < 0.4
+                    else "#ff8c42" if v is not None and v < 0.7
+                    else "#ff4b4b" if v is not None
+                    else "rgba(0,0,0,0)"
+                    for v in y_vals
+                ]
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=x_labels,
+                    y=y_vals,
+                    mode="lines+markers",
+                    connectgaps=True,
+                    line=dict(color="#ff4b4b", width=2, shape="spline"),
+                    fill="tozeroy",
+                    fillcolor="rgba(255,75,75,0.07)",
+                    marker=dict(
+                        color=point_colors,
+                        size=8,
+                        line=dict(color="#0a0d14", width=1.5),
+                    ),
+                    hovertemplate="%{x}<br>Avg score: %{y:.3f}<extra></extra>",
+                    showlegend=False,
+                ))
+                fig.update_layout(
+                    showlegend=False,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor="#0a0d14",
+                    plot_bgcolor="#0a0d14",
+                    height=220,
+                )
+                fig.update_xaxes(
+                    showgrid=False, color="#5a6080", tickfont_size=10,
+                    tickmode="array",
+                    tickvals=[f"{h:02d}:00" for h in range(0, 24, 3)],
+                    ticktext=[f"{h:02d}:00" for h in range(0, 24, 3)],
+                )
+                fig.update_yaxes(range=[0, 1], showgrid=True,
+                                  gridcolor="#1e2540", color="#5a6080", tickfont_size=10)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No time series data yet. Fetch posts first.")
+
+        with hist_col:
+            st.markdown("#### Score distribution")
+            scores = [float(r.get("score", 0) or 0) for r in batch_rows]
+            if scores:
+                bin_labels = ["0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"]
+                bin_styles = [
+                    ("rgba(46,204,113,0.15)",  "#2ecc71"),
+                    ("rgba(163,230,53,0.15)",  "#a3e635"),
+                    ("rgba(255,235,59,0.15)",  "#ffeb3b"),
+                    ("rgba(255,140,66,0.15)",  "#ff8c42"),
+                    ("rgba(255,75,75,0.18)",   "#ff4b4b"),
+                ]
+                bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.01]
+                counts = [0] * 5
+                for s in scores:
+                    for i in range(5):
+                        if bins[i] <= s < bins[i + 1]:
+                            counts[i] += 1
+                            break
+                fig2 = go.Figure()
+                for label, count, (fill, line) in zip(bin_labels, counts, bin_styles):
+                    fig2.add_trace(go.Bar(
+                        x=[label], y=[count],
+                        marker_color=fill,
+                        marker_line_color=line,
+                        marker_line_width=1.5,
+                        hovertemplate=f"{label}: {count} posts<extra></extra>",
+                        showlegend=False,
+                    ))
+                fig2.update_layout(
+                    showlegend=False,
+                    margin=dict(l=5, r=5, t=10, b=10),
+                    paper_bgcolor="#0a0d14",
+                    plot_bgcolor="#0a0d14",
+                    height=220, bargap=0.2,
+                )
+                fig2.update_xaxes(showgrid=False, color="#5a6080", tickfont_size=9)
+                fig2.update_yaxes(showgrid=True, gridcolor="#1e2540", color="#5a6080", tickfont_size=9)
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.info("Fetch posts to see score distribution.")
+
+        # ── Activity heatmap ───────────────────────────────────────────────────
+        st.markdown("#### Activity heatmap")
+        # WHY heatmap: reveals temporal patterns in toxic speech — e.g. spikes
+        # on weekends or late night — that raw numbers can't show.
+        # GitHub-style contribution grid is immediately readable to developers.
+        hm: dict = defaultdict(lambda: {"sum": 0.0, "count": 0})
+        for row in history:
+            dt = _parse_dt(row.get("created_at"))
+            if not dt:
+                continue
+            hm[(dt.weekday(), dt.hour)]["sum"] += float(row.get("score", 0) or 0)
+            hm[(dt.weekday(), dt.hour)]["count"] += 1
+
+        if hm:
+            max_avg = max(
+                (v["sum"] / v["count"] for v in hm.values() if v["count"]), default=1.0
+            ) or 1.0
+
+            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            rows_html = ["<div style='display:flex;flex-direction:column;gap:3px;overflow-x:auto;'>"]
+
+            # Hour labels row
+            hour_labels = "<div style='display:flex;align-items:center;gap:2px;margin-bottom:2px;'>"
+            hour_labels += "<div style='width:36px'></div>"
+            for h in range(24):
+                label = str(h) if h % 6 == 0 else ""
+                hour_labels += f"<div style='width:18px;font-size:0.55rem;color:#3a4060;text-align:center'>{label}</div>"
+            hour_labels += "</div>"
+            rows_html.append(hour_labels)
+
+            for d_idx, day in enumerate(days):
+                row_html = f"<div style='display:flex;align-items:center;gap:2px;'>"
+                row_html += f"<div style='width:36px;font-size:0.68rem;color:#5a6080;text-align:right;padding-right:6px'>{day}</div>"
+                for h in range(24):
+                    cell = hm.get((d_idx, h))
+                    if cell and cell["count"]:
+                        intensity = (cell["sum"] / cell["count"]) / max_avg
+                        r_val = int(30 + (255 - 30) * intensity)
+                        g_val = int(37 + (75 - 37) * intensity)
+                        b_val = int(64 + (75 - 64) * intensity)
+                        bg = f"rgb({r_val},{g_val},{b_val})"
+                        title = f"{day} {h:02d}:00 — avg {cell['sum']/cell['count']:.2f}"
+                    else:
+                        bg = "#1a1d2e"
+                        title = f"{day} {h:02d}:00 — no data"
+                    row_html += f"<div style='width:18px;height:18px;background:{bg};border-radius:3px;' title='{title}'></div>"
+                row_html += "</div>"
+                rows_html.append(row_html)
+
+            rows_html.append("</div>")
+            rows_html.append("""
+            <div style='margin-top:6px;display:flex;align-items:center;gap:6px;font-size:0.68rem;color:#5a6080;'>
+              <span>Low</span>
+              <div style='width:100px;height:7px;border-radius:4px;
+                background:linear-gradient(90deg,#1a1d2e,#ff4b4b);'></div>
+              <span>High toxicity</span>
+            </div>""")
+
+            st.markdown("".join(rows_html), unsafe_allow_html=True)
+        else:
+            st.info("Not enough data for heatmap yet.")
+
+        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+        # ── Recent posts ───────────────────────────────────────────────────────
+        st.markdown("#### Recent posts (last batch)")
+        if batch_rows:
+            cards_html = ["<div class='card post-list'>"]
+            for row in batch_rows[:20]:
+                text = (row.get("text") or "").strip()
+                score = float(row.get("score", 0) or 0)
+                sc = "score-high" if score >= 0.7 else ("score-mid" if score >= 0.4 else "score-low")
+                # WHY prefer stored query_term over vocab search:
+                # query_term is set at fetch time so it's always accurate.
+                # vocab search is a fallback for older rows that predate this field.
+                matched = row.get("query_term") or next((t for t in vocab if t and t in text.lower()), "—")
+                cards_html.append(f"""<div class="post-card">
+                  <div class="score-badge {sc}">{score:.3f}</div>
+                  <div class="post-text">{escape(text[:110])}</div>
+                  <div class="term-pill">{escape(matched)}</div>
+                </div>""")
+            cards_html.append("</div>")
+            st.markdown("".join(cards_html), unsafe_allow_html=True)
+        else:
+            st.info("Click 'Fetch & Analyze' to see recent posts.")
+
+    with graph_tab:
+            # Graph controls live inside the tab.
+            # WHY: we use a session_state trigger flag so the button click stores
+            # intent in session_state. On the NEXT rerun (which re-renders the tab
+            # we are already on), the flag is read and graph is built. This avoids
+            # the tab-reset issue caused by st.button triggering a full rerun.
+            info_col, ctrl_col = st.columns([3, 1])
+            with info_col:
+                st.markdown("""<div class="card" style="margin-bottom:1rem">
+                  <div class="metric-label">How to read this graph</div>
+                  <div style="font-size:0.8rem;color:#8a90ad;margin-top:0.3rem">
+                    Words that frequently appear together in algospeak posts are connected.
+                    Node size = frequency &nbsp;|&nbsp;
+                    <span style="color:#ff4b4b">red &gt;70% toxic</span> &nbsp;
+                    <span style="color:#ff9f43">orange 40-70% mixed</span> &nbsp;
+                    <span style="color:#2ecc71">green &lt;40% benign</span>
+                  </div>
+                </div>""", unsafe_allow_html=True)
+            with ctrl_col:
+                min_cooccurrence = st.slider("Min co-occurrences", 2, 10,
+                                              st.session_state.last_min_cooc, key="graph_cooc_slider")
+                toxic_only_graph = st.checkbox("Toxic posts only", value=False, key="toxic_only_graph")
+                if st.button("Build Graph", use_container_width=True, key="build_graph_btn"):
+                    st.session_state.build_graph_trigger = True
+                    st.session_state.build_graph_cooc = int(min_cooccurrence)
+
+            if st.session_state.get("build_graph_trigger"):
+                st.session_state.build_graph_trigger = False
+                cooc = st.session_state.get("build_graph_cooc", 3)
+                with st.spinner("Building co-occurrence graph..."):
+                    graph = build_cooccurrence_graph(min_cooccurrence=cooc)
+                st.session_state.last_min_cooc = cooc
+                if graph.number_of_nodes() == 0:
+                    st.session_state.graph_html = None
+                    st.warning("Not enough data. Fetch more posts first.")
+                else:
+                    st.session_state.graph_html = graph_to_pyvis(
+                        graph, toxic_only=st.session_state.get("toxic_only_graph", False)
+                    )
+
+            if st.session_state.graph_html:
+                st.components.v1.html(st.session_state.graph_html, height=620, scrolling=True)
+            else:
+                st.info("Adjust settings above and click 'Build Graph' to visualize word co-occurrences.")
+
+    # ── Term comparison tab ────────────────────────────────────────────────────
+    with compare_tab:
+        st.markdown("#### Compare two terms side by side")
+        st.markdown("<div style='color:#5a6080;font-size:0.82rem;margin-bottom:0.8rem'>Select two algospeak terms to compare their toxicity profiles from all stored posts.</div>", unsafe_allow_html=True)
+
+        all_opts = list(ALGOSPEAK_QUERIES) + [t for t in st.session_state.custom_terms if t not in ALGOSPEAK_QUERIES]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            term_a = st.selectbox("Term A", all_opts, index=0, key="compare_a")
+        with col_b:
+            term_b = st.selectbox("Term B", all_opts, index=min(1, len(all_opts)-1), key="compare_b")
+
+        if term_a == term_b:
+            st.warning("Select two different terms to compare.")
+        else:
+            # WHY: filter history per term, then compute the same metrics used in
+            # Overview so the numbers are directly comparable side by side.
+            def term_stats(term):
+                posts = [r for r in history if term in (r.get("text") or "").lower()]
+                if not posts:
+                    return None
+                scores = [float(r.get("score", 0) or 0) for r in posts]
+                toxic_n = sum(1 for r in posts if (r.get("label") or "").lower() == "toxic")
+                return {
+                    "count": len(posts),
+                    "toxic_rate": toxic_n / len(posts) * 100,
+                    "avg_score": sum(scores) / len(scores),
+                    "max_score": max(scores),
+                    "posts": posts,
+                }
+
+            stats_a = term_stats(term_a)
+            stats_b = term_stats(term_b)
+
+            if not stats_a or not stats_b:
+                st.info("Not enough data for one or both terms. Fetch more posts first.")
+            else:
+                # Metric cards
+                ca, cb = st.columns(2)
+                for col, term, stats in [(ca, term_a, stats_a), (cb, term_b, stats_b)]:
+                    color = "#ff4b4b" if stats["toxic_rate"] >= 70 else ("#ff8c42" if stats["toxic_rate"] >= 40 else "#2ecc71")
+                    with col:
+                        st.markdown(f"""<div class="card" style="margin-bottom:0.8rem">
+                          <div style="font-size:1rem;font-weight:700;color:#e8eaf0;margin-bottom:0.5rem">"{term}"</div>
+                          <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+                            <div><div class="metric-label">Posts</div>
+                              <div class="metric-value" style="color:#a6b0ff">{stats["count"]}</div></div>
+                            <div><div class="metric-label">Toxic rate</div>
+                              <div class="metric-value" style="color:{color}">{stats["toxic_rate"]:.1f}%</div></div>
+                            <div><div class="metric-label">Avg score</div>
+                              <div class="metric-value" style="color:{color}">{stats["avg_score"]:.3f}</div></div>
+                            <div><div class="metric-label">Max score</div>
+                              <div class="metric-value" style="color:#ff4b4b">{stats["max_score"]:.3f}</div></div>
+                          </div></div>""", unsafe_allow_html=True)
+
+                # Side by side score distribution
+                st.markdown("#### Score distribution comparison")
+                bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.01]
+                bin_labels = ["0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"]
+
+                def bin_scores(posts):
+                    counts = [0] * 5
+                    for r in posts:
+                        s = float(r.get("score", 0) or 0)
+                        for i in range(5):
+                            if bins[i] <= s < bins[i+1]:
+                                counts[i] += 1
+                                break
+                    return counts
+
+                counts_a = bin_scores(stats_a["posts"])
+                counts_b = bin_scores(stats_b["posts"])
+
+                fig_cmp = go.Figure()
+                fig_cmp.add_trace(go.Bar(name=term_a, x=bin_labels, y=counts_a,
+                    marker_color="rgba(166,176,255,0.2)", marker_line_color="#a6b0ff", marker_line_width=1.5))
+                fig_cmp.add_trace(go.Bar(name=term_b, x=bin_labels, y=counts_b,
+                    marker_color="rgba(255,140,66,0.2)", marker_line_color="#ff8c42", marker_line_width=1.5))
+                fig_cmp.update_layout(
+                    barmode="group", paper_bgcolor="#0a0d14", plot_bgcolor="#0a0d14",
+                    legend=dict(font=dict(color="#e8eaf0")),
+                    margin=dict(l=10, r=10, t=10, b=10), height=260,
+                )
+                fig_cmp.update_xaxes(showgrid=False, color="#5a6080")
+                fig_cmp.update_yaxes(showgrid=True, gridcolor="#1e2540", color="#5a6080")
+                st.plotly_chart(fig_cmp, use_container_width=True)
+
+    # ── Export tab ─────────────────────────────────────────────────────────────
+    with export_tab:
+        st.markdown("#### Export data")
+        st.markdown("<div style='color:#5a6080;font-size:0.82rem;margin-bottom:0.8rem'>Download posts from the current session or the full database history.</div>", unsafe_allow_html=True)
+
+        export_source = st.radio("Data source", ["Last batch (current fetch)", "Full history (all stored posts)"],
+                                  horizontal=True, key="export_source")
+        export_rows = batch_rows if export_source.startswith("Last") else history
+
+        if not export_rows:
+            st.info("No data to export yet. Fetch posts first.")
+        else:
+            import csv, io, json as _json
+
+            # WHY io.StringIO: lets us build the CSV entirely in memory without
+            # writing to disk — important for a stateless server environment like
+            # HuggingFace Spaces where you don't control the filesystem.
+            csv_buf = io.StringIO()
+            writer = csv.DictWriter(csv_buf, fieldnames=["text", "label", "score", "query_term", "created_at"])
+            writer.writeheader()
+            for r in export_rows:
+                writer.writerow({
+                    "text": (r.get("text") or "").replace("\n", " "),
+                    "label": r.get("label", ""),
+                    "score": f'{float(r.get("score", 0) or 0):.4f}',
+                    "query_term": r.get("query_term", ""),
+                    "created_at": r.get("created_at", ""),
+                })
+
+            json_buf = _json.dumps(export_rows, ensure_ascii=False, indent=2, default=str)
+
+            st.markdown(f"<div style='color:#5a6080;font-size:0.8rem;margin-bottom:0.6rem'>{len(export_rows)} posts ready to export</div>", unsafe_allow_html=True)
+
+            dl_csv, dl_json = st.columns(2)
+            with dl_csv:
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_buf.getvalue(),
+                    file_name="algoscope_export.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            with dl_json:
+                st.download_button(
+                    label="Download JSON",
+                    data=json_buf,
+                    file_name="algoscope_export.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+
+            # Preview table
+            st.markdown("#### Preview (first 10 rows)")
+            preview_html = ["<div class='card'><table style='width:100%;border-collapse:collapse;font-size:0.75rem'>",
+                "<tr style='color:#5a6080;border-bottom:1px solid #1e2540'>",
+                "<th style='padding:6px;text-align:left'>Score</th>",
+                "<th style='padding:6px;text-align:left'>Label</th>",
+                "<th style='padding:6px;text-align:left'>Term</th>",
+                "<th style='padding:6px;text-align:left'>Text</th></tr>"]
+            for r in export_rows[:10]:
+                score = float(r.get("score", 0) or 0)
+                sc = "score-high" if score >= 0.7 else ("score-mid" if score >= 0.4 else "score-low")
+                preview_html.append(f"""<tr style='border-bottom:1px solid #141826'>
+                    <td style='padding:5px'><span class='score-badge {sc}'>{score:.3f}</span></td>
+                    <td style='padding:5px;color:#c8cce0'>{escape(r.get("label",""))}</td>
+                    <td style='padding:5px'><span class='term-pill'>{escape(r.get("query_term",""))}</span></td>
+                    <td style='padding:5px;color:#9aa0c0'>{escape((r.get("text","") or "")[:80])}</td>
+                </tr>""")
+            preview_html.append("</table></div>")
+            st.markdown("".join(preview_html), unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    main()

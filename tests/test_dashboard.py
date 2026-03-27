@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import pytest
 
 
 def test_dashboard_imports(monkeypatch) -> None:
+    # Legacy Streamlit dashboard is optional in the React+FastAPI runtime.
+    pytest.importorskip("plotly")
+    pytest.importorskip("streamlit")
+
     # Avoid heavy model load during import by stubbing the classifier
     from app import model as model_module
 
