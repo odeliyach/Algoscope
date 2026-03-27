@@ -7,6 +7,7 @@ interface OverviewTabProps {
   batchPosts: Post[];
   selectedTerms: string[];
   justFetched: boolean;
+  totalAnalyzed: number;
 }
 
 // ── Animated counter hook ──────────────────────────────────────────────────────
@@ -457,7 +458,7 @@ function CustomScoreBars({ data }: { data: { label: string; count: number; color
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function OverviewTab({ posts, batchPosts, selectedTerms, justFetched }: OverviewTabProps) {
+export function OverviewTab({ posts, batchPosts, selectedTerms, justFetched, totalAnalyzed }: OverviewTabProps) {
   const totalPosts = posts.length;
   const toxicCount = posts.filter(p => p.label === "toxic").length;
   const toxicRate = totalPosts ? (toxicCount / totalPosts) * 100 : 0;
@@ -476,7 +477,10 @@ export function OverviewTab({ posts, batchPosts, selectedTerms, justFetched }: O
   }
   const topTerm = Object.keys(termCounts).sort((a, b) => termCounts[b] - termCounts[a])[0] || "—";
 
-  const animatedTotal = useAnimatedNumber(totalPosts);
+  // WHY totalAnalyzed instead of totalPosts: totalPosts is capped at 500
+  // and deduplicates across fetches, so it under-counts. totalAnalyzed is
+  // a true running sum passed down from App state — one increment per fetch.
+  const animatedTotal = useAnimatedNumber(totalAnalyzed || totalPosts);
   const animatedToxicRate = useAnimatedFloat(toxicRate, 900, 1);
   const animatedAvg = useAnimatedFloat(avgScoreRaw, 900, 3);
 

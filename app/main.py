@@ -163,7 +163,7 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
     batch_ts_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     result_posts: list[dict[str, Any]] = []
 
-    for text, post_ts, pred in zip(texts_only, timestamps, predictions):
+    for i, (text, post_ts, pred) in enumerate(zip(texts_only, timestamps, predictions)):
         score = float(pred.get("score", 0.0) or 0.0)
         label = "toxic" if score >= request.threshold else "non-toxic"
         matched_term = next(
@@ -172,7 +172,7 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
         )
         save_post(text=text, label=label, score=score, platform="bluesky", query_term=matched_term)
         result_posts.append({
-            "id": 0,
+            "id": int(time.time() * 1000) + i,  # unique id per post — prevents frontend dedup wiping history
             "text": text,
             "label": label,
             "score": score,

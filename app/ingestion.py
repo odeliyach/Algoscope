@@ -164,10 +164,13 @@ def fetch_posts(
             logger.info("Fetching posts for %d queries (limit=%d)", len(query_list), limit)
 
             for q in query_list:
-                # Cap per-query limit to bound total latency.
-                # WHY: fan-out work must be bounded so one request cannot
-                # blow up downstream services — standard production API pattern.
-                per_query_limit = min(limit, 10) if queries is not None else limit
+                # Divide the total limit evenly across all queries so that the
+                # sum of per-query fetches equals the requested limit.
+                # WHY: previously every query fetched min(limit, 10) posts,
+                # so 10 queries × 10 posts = up to 100 posts regardless of
+                # what the user requested. Now 25 limit ÷ 10 queries = 2-3
+                # posts each, giving ~25 total before dedup — matching the UI.
+                per_query_limit = max(1, limit // len(query_list)) if queries is not None else limit
                 params: dict[str, Any] = {
                     "q": q,
                     "limit": min(max(1, per_query_limit), 100),
