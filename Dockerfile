@@ -1,17 +1,6 @@
-# ── Stage 1: Build React frontend ─────────────────────────────────────────────
-# WHY multi-stage: Node.js is only needed to compile React.
-# The final image doesn't include Node — just the compiled JS/CSS.
-# Multi-stage keeps the production image ~150MB vs ~800MB with Node included.
-FROM node:20-slim AS frontend-builder
-WORKDIR /frontend
-COPY frontend/package.json frontend/pnpm-lock.yaml* ./
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
-COPY frontend/. .
-RUN pnpm build
-
-# ── Stage 2: Python runtime ────────────────────────────────────────────────────
-# WHY python:3.12-slim: full image is 1GB+, slim is ~150MB.
-# We only need the runtime, not build tools.
+# WHY single stage: the React frontend is already compiled by GitHub Actions
+# and pushed as frontend/dist/ to HuggingFace. No need for a Node build stage.
+# This keeps the image small and the build fast.
 FROM python:3.12-slim
 WORKDIR /app
 
@@ -24,8 +13,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code after dependencies (changes more often)
 COPY app/ ./app/
 
-# Copy only the compiled React output from Stage 1 — not Node or source files
-COPY --from=frontend-builder /frontend/dist ./frontend/dist
+# Copy the pre-built React output pushed by the GitHub Actions workflow.
+# WHY not build here: hf-deploy.yml already runs pnpm build and strips src/,
+# so src/main.tsx doesn't exist in this context. Building twice is wasteful anyway.
+COPY frontend/dist/ ./frontend/dist/
 
 # WHY non-root user: running as root means a container escape gives full
 # host access. Two lines is the industry baseline for container security.
