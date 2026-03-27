@@ -102,7 +102,7 @@ def preprocess_text(text: str) -> str:
     return text
 
 
-def _dedupe_texts(texts: Iterable[str]) -> list[str]:
+def _dedupe_texts(texts: Iterable[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
     """
     Deduplicate posts while preserving order.
 
@@ -118,12 +118,12 @@ def _dedupe_texts(texts: Iterable[str]) -> list[str]:
         List of unique strings in original order.
     """
     seen: Set[str] = set()
-    result: list[str] = []
-    for t in texts:
-        if t in seen:
+    result: list[tuple[str, str | None]] = []
+    for text, ts in texts:
+        if text in seen:
             continue
-        seen.add(t)
-        result.append(t)
+        seen.add(text)
+        result.append((text, ts))
     return result
 
 
@@ -131,7 +131,7 @@ def fetch_posts(
     query: str,
     limit: int = 50,
     queries: Optional[list[str]] = None,
-) -> list[str]:
+) -> list[tuple[str, str | None]]:
     """
     Search Bluesky for posts and return their text content.
 
