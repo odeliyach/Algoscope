@@ -34,33 +34,27 @@ jobs:
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
 
-          # יצירת ענף חדש ונקי לצורך הפריסה בלבד
           git checkout --orphan hf-deploy
 
-          # הסרת קבצים שלא נרצה ב-HuggingFace (כמו תיקיית assets גדולה)
           git rm -rf assets/ 2>/dev/null || true
 
-          # החלפת ה-README בכזה שכולל את ה-Metadata של HuggingFace
           if [ -f README_HF.md ]; then
             cp README_HF.md README.md
             git rm --cached README_HF.md 2>/dev/null || true
             rm README_HF.md
           fi
 
-          # הוספת קבצי ה-Build (חובה להוסיף אותם בכוח כי הם ב-gitignore)
           git add -f frontend/dist/
           git add .
 
-          # הסרת קבצי המקור של ה-Frontend כדי לחסוך מקום ב-Space
           git rm -r --cached frontend/src/ 2>/dev/null || true
           git rm -r --cached frontend/node_modules/ 2>/dev/null || true
 
           git commit -m "Deploy to HuggingFace Spaces"
 
-          # הגדרת ה-Remote וביצוע ה-Push
-          # WHY add||set-url: git remote add fails with exit 129 if the remote
-          # already exists from a previous run. This pattern is idempotent:
-          # add succeeds on a fresh runner; set-url updates it on a warm one.
-          git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope 2>/dev/null \
-            || git remote set-url space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
-          git push space hf-deploy:main --force
+          # WHY push directly to URL instead of using a named remote:
+          # git checkout --orphan creates a branch with a clean .git/config —
+          # no remotes exist. Both `git remote add` and `git remote set-url`
+          # fail with "No such remote" because there is nothing to update.
+          # Pushing directly to the HTTPS URL skips the remote registry entirely.
+          git push https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope hf-deploy:main --force
