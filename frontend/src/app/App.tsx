@@ -11,6 +11,7 @@ import { SplashScreen } from "./components/SplashScreen";
 import {
   apiFetchPosts,
   apiFetchAndAnalyze,
+  apiFetchTotal,
   generateMockPosts,
   ALGOSPEAK_TERMS,
   Post,
@@ -120,23 +121,20 @@ export default function App() {
       }
 
       setBatchPosts(newBatch);
-      // WHY compute trulyNew outside the setAllPosts updater:
-      // Calling setTotalAnalyzed inside a setAllPosts updater is a React
-      // anti-pattern — the inner setState may run with a stale counter value
-      // because React batches updater calls and does not guarantee the order
-      // in which nested setState calls are flushed. The symptom was:
-      // counter reset to newBatch.length (e.g. 28) instead of accumulating
-      // (200 → 228). Fix: snapshot allPosts synchronously here, compute
-      // trulyNew from that snapshot, then call both setStates separately so
-      // React's functional-update guarantee applies to each independently.
-      const currentIds = new Set(allPosts.map(p => String(p.id)));
-      const trulyNew = newBatch.filter(p => !currentIds.has(String(p.id)));
-      setTotalAnalyzed(c => c + trulyNew.length);
       setAllPosts(prev => {
         const idSet = new Set(newBatch.map(p => String(p.id)));
         const filtered = prev.filter(p => !idSet.has(String(p.id)));
         return [...newBatch, ...filtered].slice(0, 500);
       });
+      // WHY fetch total from DB instead of computing locally:
+      // Any local computation (trulyNew, c => c + n) suffers from stale
+      // closures inside useCallback — allPosts captured at creation time is
+      // never the latest value, so the counter stops accumulating after the
+      // first fetch. The DB is the only source of truth for how many posts
+      // have ever been analyzed. One extra GET /posts?limit=1 call (tiny)
+      // gives us the exact real count with zero closure risk.
+      const dbTotal = await apiFetchTotal();
+      if (dbTotal >= 0) setTotalAnalyzed(dbTotal);
       setJustFetched(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Fetch failed";
