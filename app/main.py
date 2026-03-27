@@ -36,7 +36,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("AlgoScope API starting up")
-    classifier = ToxicityClassifier()
+   # classifier = ToxicityClassifier()
     logger.info("ToxicityClassifier ready")
     try:
         seed_if_empty()
