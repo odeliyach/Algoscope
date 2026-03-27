@@ -152,14 +152,18 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
             "message": "No posts fetched. Check Bluesky credentials or try again.",
         }
 
+    # Unpack tuples returned by fetch_posts: [(text, timestamp), ...]
+    texts_only = [text for text, _ts in posts_text]
+    timestamps = [ts for _text, ts in posts_text]
+
     t1 = time.time()
-    predictions = classifier.predict_batch(posts_text)
+    predictions = classifier.predict_batch(texts_only)
     infer_time = time.time() - t1
 
     batch_ts_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     result_posts: list[dict[str, Any]] = []
 
-    for text, pred in zip(posts_text, predictions):
+    for text, post_ts, pred in zip(texts_only, timestamps, predictions):
         score = float(pred.get("score", 0.0) or 0.0)
         label = "toxic" if score >= request.threshold else "non-toxic"
         matched_term = next(
@@ -173,7 +177,7 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
             "label": label,
             "score": score,
             "platform": "bluesky",
-            "created_at": batch_ts_iso,            
+            "created_at": post_ts or batch_ts_iso,
             "query_term": matched_term,
         })
 
