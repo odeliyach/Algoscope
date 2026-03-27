@@ -23,11 +23,18 @@ interface Props {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const W = 820;
 const H = 540;
-const REPULSION = 3800;
-const SPRING = 0.035;
-const EDGE_LEN = 140;
-const GRAVITY = 0.01;
-const DAMPING = 0.84;
+// WHY increased REPULSION + reduced SPRING for real data:
+// Mock data had ~6 nodes with low edge weights. Real data has 20-30 nodes
+// where a hub like "unalive" has 17 edges — the combined spring pull
+// overwhelmed repulsion and collapsed the graph into one blob.
+// Higher REPULSION (6000) pushes nodes apart more aggressively,
+// lower SPRING (0.018) reduces the per-edge pull so a hub with 17 edges
+// doesn't dominate. EDGE_LEN increased so nodes have more breathing room.
+const REPULSION = 6000;
+const SPRING = 0.018;
+const EDGE_LEN = 180;
+const GRAVITY = 0.008;
+const DAMPING = 0.82;
 const CENTER_X = W / 2;
 const CENTER_Y = H / 2;
 
@@ -177,15 +184,22 @@ function useForceSimulation(
     cancelAnimationFrame(rafRef.current);
     activeRef.current = true;
 
-    nodesRef.current = nodeConfigs.map(n => ({
-      id: n.id,
-      frequency: n.frequency,
-      toxicRatio: n.toxicRatio,
-      x: CENTER_X + (Math.random() - 0.5) * 280,
-      y: CENTER_Y + (Math.random() - 0.5) * 280,
-      vx: (Math.random() - 0.5) * 1.5,
-      vy: (Math.random() - 0.5) * 1.5,
-    }));
+    nodesRef.current = nodeConfigs.map((n, i) => {
+      // WHY circle spread: random init clusters nodes near center, requiring
+      // hundreds of ticks to separate. Evenly spreading in a circle means
+      // repulsion forces are balanced from tick 1 — graph settles readable.
+      const angle = (i / Math.max(nodeConfigs.length, 1)) * 2 * Math.PI;
+      const spread = Math.min(W, H) * 0.32;
+      return {
+        id: n.id,
+        frequency: n.frequency,
+        toxicRatio: n.toxicRatio,
+        x: CENTER_X + Math.cos(angle) * spread,
+        y: CENTER_Y + Math.sin(angle) * spread,
+        vx: (Math.random() - 0.5) * 1.5,
+        vy: (Math.random() - 0.5) * 1.5,
+      };
+    });
     setPositions(nodesRef.current.map(n => ({ ...n })));
     rafRef.current = requestAnimationFrame(run);
 
