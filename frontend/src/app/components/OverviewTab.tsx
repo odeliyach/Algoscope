@@ -483,7 +483,7 @@ export function OverviewTab({ posts, batchPosts, selectedTerms, justFetched }: O
   const timeData = useMemo(() => {
     const buckets: Record<number, { sum: number; count: number }> = {};
     for (const p of posts) {
-      const h = new Date(p.created_at).getHours();
+      const h = new Date(p.created_at).getUTCHours();
       if (!buckets[h]) buckets[h] = { sum: 0, count: 0 };
       buckets[h].sum += p.score;
       buckets[h].count += 1;
