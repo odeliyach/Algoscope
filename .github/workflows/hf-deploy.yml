@@ -58,6 +58,9 @@ jobs:
           git commit -m "Deploy to HuggingFace Spaces"
 
           # הגדרת ה-Remote וביצוע ה-Push
-          # כאן התיקון לשגיאה 129 - הכתובת רציפה ותקינה
-          git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
+          # WHY add||set-url: git remote add fails with exit 129 if the remote
+          # already exists from a previous run. This pattern is idempotent:
+          # add succeeds on a fresh runner; set-url updates it on a warm one.
+          git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope 2>/dev/null \
+            || git remote set-url space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
           git push space hf-deploy:main --force
