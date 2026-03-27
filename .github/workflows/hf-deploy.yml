@@ -1,60 +1,17 @@
-name: Deploy to HuggingFace Spaces
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Build React frontend
-        working-directory: frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
-
-      - name: Push to HuggingFace Space
+- name: Push to HuggingFace Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
-
           git checkout --orphan hf-deploy
-
-          # Remove assets we don't need on HuggingFace
-          git rm -rf assets/ 2>/dev/null || true
-
-          # WHY swap README: GitHub README has no YAML header.
-          # README_HF.md has the HuggingFace YAML metadata header.
-          cp README_HF.md README.md
-          git rm --cached README_HF.md 2>/dev/null || true
-          rm README_HF.md
-
-          # WHY add frontend/dist: .gitignore excludes it from normal commits
-          # (correct — you don't version build artifacts), but the HuggingFace
-          # Space needs the compiled JS/CSS to serve the React app.
-          # We force-add it only for this deploy branch.
+          if [ -f README_HF.md ]; then
+            cp README_HF.md README.md
+          fi
           git add -f frontend/dist/
-          git add .
-
-          # Remove frontend source and node_modules from the deploy branch —
-          # HuggingFace only needs the compiled output, not the source.
-          git rm -r --cached frontend/src/ 2>/dev/null || true
-          git rm -r --cached frontend/node_modules/ 2>/dev/null || true
-
+          git add app/ dashboard.py requirements.txt Dockerfile README.md 2>/dev/null || git add .
+          git rm -rf frontend/src/ 2>/dev/null || true
           git commit -m "Deploy to HuggingFace Spaces"
+          git remote rm space 2>/dev/null || true
           git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
           git push space hf-deploy:main --force
