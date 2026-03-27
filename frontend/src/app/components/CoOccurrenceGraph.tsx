@@ -147,7 +147,11 @@ function useForceSimulation(
         n.vy *= DAMPING;
         n.x = safeNum(n.x + n.vx, CENTER_X);
         n.y = safeNum(n.y + n.vy, CENTER_Y);
-        const r = 8 + (n.frequency ?? 10) * 0.25;
+        // WHY log scale: linear sizing (freq * 0.25) lets high-frequency common
+        // words (e.g. "yeah", "his") grow to 10x the size of algospeak terms,
+        // dominating the canvas. Math.log compresses the range so all nodes
+        // stay visually comparable. Min 8px, max ~32px regardless of frequency.
+        const r = 8 + Math.min(Math.log1p(n.frequency ?? 1) * 5, 24);
         n.x = Math.max(r + 40, Math.min(W - r - 40, n.x));
         n.y = Math.max(r + 20, Math.min(H - r - 20, n.y));
       }
@@ -459,9 +463,11 @@ function GraphCanvas({
 
             {/* Nodes */}
             {positions.map(node => {
-              const freq = node.frequency ?? 10;
+              const freq = node.frequency ?? 1;
               const tRatio = node.toxicRatio ?? 0.5;
-              const size = 6 + freq * 0.5;
+              // WHY log1p: same formula as the physics loop so the rendered
+              // circle matches the collision radius used for simulation.
+              const size = 8 + Math.min(Math.log1p(freq) * 5, 24);
               const color = nodeColor(tRatio);
               const isHovered = hoveredNode === node.id;
               const isDimmed = !!(hoveredNode && !isHovered);
