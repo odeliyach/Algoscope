@@ -45,6 +45,11 @@ export default function App() {
   const [fetching, setFetching] = useState(false);
   const [justFetched, setJustFetched] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  // WHY separate counter instead of allPosts.length:
+  // allPosts is capped at 500 and deduplicates by id, so it can go DOWN
+  // when new posts replace old ones. totalAnalyzed is a monotonically
+  // increasing sum — the true count of posts ever processed this session.
+  const [totalAnalyzed, setTotalAnalyzed] = useState(0);
 
   // Graph controls
   const [minCooccurrence, setMinCooccurrence] = useState(3);
@@ -109,6 +114,7 @@ export default function App() {
       }
 
       setBatchPosts(newBatch);
+      setTotalAnalyzed(prev => prev + newBatch.length);
       setAllPosts(prev => {
         // Merge new posts in front, deduplicate by id, keep max 500
         const idSet = new Set(newBatch.map(p => String(p.id)));
@@ -271,6 +277,7 @@ export default function App() {
                       batchPosts={batchPosts}
                       selectedTerms={selectedTerms}
                       justFetched={justFetched}
+                      totalAnalyzed={totalAnalyzed}
                     />
                   )}
                   {activeTab === "graph" && (
