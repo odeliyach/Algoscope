@@ -477,10 +477,12 @@ export function OverviewTab({ posts, batchPosts, selectedTerms, justFetched, tot
   }
   const topTerm = Object.keys(termCounts).sort((a, b) => termCounts[b] - termCounts[a])[0] || "—";
 
-  // WHY totalAnalyzed instead of totalPosts: totalPosts is capped at 500
-  // and deduplicates across fetches, so it under-counts. totalAnalyzed is
-  // a true running sum passed down from App state — one increment per fetch.
-  const animatedTotal = useAnimatedNumber(totalAnalyzed || totalPosts);
+  // WHY totalAnalyzed directly (no || totalPosts fallback):
+  // The old fallback `totalAnalyzed || totalPosts` caused the counter to show
+  // totalPosts (200) on load, then jump DOWN to totalAnalyzed (25) after the
+  // first fetch. Now App.tsx seeds totalAnalyzed from the DB count on mount,
+  // so the fallback is no longer needed and only caused confusion.
+  const animatedTotal = useAnimatedNumber(totalAnalyzed);
   const animatedToxicRate = useAnimatedFloat(toxicRate, 900, 1);
   const animatedAvg = useAnimatedFloat(avgScoreRaw, 900, 3);
 
