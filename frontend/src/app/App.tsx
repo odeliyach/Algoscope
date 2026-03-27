@@ -120,18 +120,19 @@ export default function App() {
       }
 
       setBatchPosts(newBatch);
+      // WHY compute trulyNew outside the setAllPosts updater:
+      // Calling setTotalAnalyzed inside a setAllPosts updater is a React
+      // anti-pattern — the inner setState may run with a stale counter value
+      // because React batches updater calls and does not guarantee the order
+      // in which nested setState calls are flushed. The symptom was:
+      // counter reset to newBatch.length (e.g. 28) instead of accumulating
+      // (200 → 228). Fix: snapshot allPosts synchronously here, compute
+      // trulyNew from that snapshot, then call both setStates separately so
+      // React's functional-update guarantee applies to each independently.
+      const currentIds = new Set(allPosts.map(p => String(p.id)));
+      const trulyNew = newBatch.filter(p => !currentIds.has(String(p.id)));
+      setTotalAnalyzed(c => c + trulyNew.length);
       setAllPosts(prev => {
-        // Merge new posts in front, deduplicate by id, keep max 500
-        const existingIds = new Set(prev.map(p => String(p.id)));
-        const trulyNew = newBatch.filter(p => !existingIds.has(String(p.id)));
-        // WHY count only trulyNew here instead of newBatch.length:
-        // The backend may return posts already present in the DB (from the
-        // initial seed or a previous fetch). Counting newBatch.length directly
-        // caused the counter to jump to e.g. 229 instead of accumulating
-        // (200 → 230 → 229 bug). We compute the truly-new count inside the
-        // setAllPosts updater so it uses the same prev snapshot, guaranteeing
-        // the dedup logic and the counter increment are always in sync.
-        setTotalAnalyzed(c => c + trulyNew.length);
         const idSet = new Set(newBatch.map(p => String(p.id)));
         const filtered = prev.filter(p => !idSet.has(String(p.id)));
         return [...newBatch, ...filtered].slice(0, 500);
