@@ -57,6 +57,18 @@ export async function apiFetchPosts(limit = 100): Promise<Post[]> {
 }
 
 /**
+ * Fetch just the total post count from the DB without pulling all rows.
+ * Used to keep the "Posts analyzed" counter in sync with the real DB after
+ * every fetch — avoids stale-closure bugs in useCallback.
+ */
+export async function apiFetchTotal(): Promise<number> {
+  const res = await fetch(`${API_BASE}/posts?limit=1`);
+  if (!res.ok) return -1;
+  const data = await res.json();
+  return typeof data.total === "number" ? data.total : -1;
+}
+
+/**
  * Trigger a Bluesky fetch + batch inference cycle.
  * Returns the new posts plus timing metadata for the UI.
  */
