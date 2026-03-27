@@ -182,7 +182,7 @@ Algoscope/
 - **Bluesky-only** — the ingestion layer is modular; adding Reddit or Mastodon requires only a new adapter in `ingestion.py`
 - **Fetch-on-click** — a background ingestion loop would keep data flowing continuously without user interaction
 - **Static model** — algospeak evolves; periodic retraining or drift detection would maintain coverage over time
-- **SQLite single-writer** — replacing with PostgreSQL or Cassandra enables concurrent multi-worker ingestion
+- **SQLite single-writer** — replacing with PostgreSQL or Cassandra enables concurrent multi-worker ingestion.
 
 ---
 
