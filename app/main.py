@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from app.database import get_recent_posts, save_post, seed_if_empty
+from app.database import get_post_count, get_recent_posts, save_post, seed_if_empty
 from app.graph import build_cooccurrence_graph
 from app.ingestion import ALGOSPEAK_QUERIES, fetch_posts
 from app.model import ToxicityClassifier
@@ -127,7 +127,12 @@ def get_posts(
             row["query_term"] = ""
         if not row.get("created_at"):
             row["created_at"] = ""
-    return {"posts": rows, "total": len(rows)}
+    # WHY get_post_count() instead of len(rows):
+    # rows is capped at `limit`, so len(rows) always equals min(limit, n_posts).
+    # The frontend calls GET /posts?limit=1 to get the true total for the
+    # "Posts Analyzed" counter — returning len(rows)=1 there was causing
+    # the counter to reset to 1 after every fetch.
+    return {"posts": rows, "total": get_post_count()}
 
 
 @app.post("/fetch-and-analyze")
