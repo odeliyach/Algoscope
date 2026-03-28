@@ -34,10 +34,12 @@ jobs:
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
 
-          mkdir /tmp/hf-deploy
+          mkdir -p /tmp/hf-deploy/app
+          mkdir -p /tmp/hf-deploy/frontend/dist
+
           cp Dockerfile requirements.txt pyproject.toml README_HF.md /tmp/hf-deploy/
           cp -r app/ /tmp/hf-deploy/app/
-          cp -r frontend/dist/ /tmp/hf-deploy/frontend/dist/
+          cp -r frontend/dist/ /tmp/hf-deploy/frontend/
           mv /tmp/hf-deploy/README_HF.md /tmp/hf-deploy/README.md
 
           cd /tmp/hf-deploy
