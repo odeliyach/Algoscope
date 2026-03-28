@@ -11,6 +11,7 @@ swap the frontend framework) without touching the others.
 
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -39,16 +40,21 @@ load_dotenv()
 classifier: ToxicityClassifier | None = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def _background_init() -> None:
+    """
+    Load the model and seed the DB in a background thread.
+
+    WHY background thread and not lifespan:
+    HuggingFace Spaces kills containers that don't respond on port 7860
+    within ~30 seconds. Loading a 250MB model + fetching Bluesky posts
+    easily exceeds that. Running both in a daemon thread lets uvicorn bind
+    immediately; the model and seed data become available a few seconds
+    later. Requests that arrive before the model is ready return default
+    predictions (non-toxic / 0.0) which is acceptable for a brief window.
+    """
     global classifier
-    logger.info("AlgoScope API starting up")
     try:
         classifier = ToxicityClassifier()
-        # WHY call _load_model() explicitly here:
-        # __init__ no longer calls _load_model() automatically (that caused
-        # the startup crash). So we must call it here, after uvicorn is up,
-        # before seed_if_empty() — which needs a ready pipeline to classify.
         classifier._load_model()
         logger.info("ToxicityClassifier ready")
     except Exception as exc:
@@ -59,6 +65,16 @@ async def lifespan(app: FastAPI):
         logger.info("DB seed check complete")
     except Exception as exc:
         logger.warning("Seed skipped (likely missing credentials): %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # WHY daemon=True: daemon threads are killed automatically when the main
+    # process exits, so we don't block graceful shutdown waiting for a slow
+    # model download or Bluesky fetch.
+    t = threading.Thread(target=_background_init, daemon=True)
+    t.start()
+    logger.info("AlgoScope API starting up — model loading in background")
     yield
     logger.info("AlgoScope API shutting down")
 
