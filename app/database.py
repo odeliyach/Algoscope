@@ -106,8 +106,59 @@ def get_post_count() -> int:
 
 def seed_if_empty() -> None:
     """
-    Intentionally disabled — auto-seeding on startup caused the container
-    to crash before uvicorn could bind to port 7860, resulting in no logs
-    on HuggingFace Spaces. The frontend fetches data on demand instead.
+    If the DB is empty (cold start or HF ephemeral filesystem wipe), fetch
+    a small batch of real posts from Bluesky and classify them so the
+    dashboard has data immediately without requiring the user to click FETCH.
+
+    WHY this is safe now (it was disabled before):
+    Previously this ran at module import time, triggering a model download
+    before uvicorn bound to port 7860, killing the container with no logs.
+    Now it is called from lifespan() AFTER the server is up and AFTER the
+    classifier has loaded. A failure here is non-fatal.
+
+    WHY 4 queries at limit=32 (not all queries at full limit):
+    Seeding is best-effort background work. ~30 posts is enough to populate
+    all dashboard widgets. Seeding all queries would add 10-30s to cold
+    start time, unacceptable for a free-tier Space that restarts often.
     """
-    logger.info("seed_if_empty: skipped (disabled for HF Spaces stability)")
+    _ensure_init()
+    count = get_post_count()
+    if count > 0:
+        logger.info("seed_if_empty: DB has %d posts, skipping seed", count)
+        return
+
+    logger.info("seed_if_empty: DB is empty, seeding from Bluesky...")
+    try:
+        from app.ingestion import ALGOSPEAK_QUERIES, fetch_posts
+        from app.model import ToxicityClassifier
+
+        classifier = ToxicityClassifier()
+        if classifier._pipeline is None:
+            logger.warning("seed_if_empty: classifier not ready, skipping seed")
+            return
+
+        seed_queries = ALGOSPEAK_QUERIES[:4]
+        posts = fetch_posts(query=seed_queries[0], limit=32, queries=seed_queries)
+        if not posts:
+            logger.warning("seed_if_empty: no posts returned from Bluesky")
+            return
+
+        texts = [t for t, _ in posts]
+        timestamps = [ts for _, ts in posts]
+        predictions = classifier.predict_batch(texts)
+
+        for text, ts, pred in zip(texts, timestamps, predictions):
+            score = float(pred.get("score", 0.0) or 0.0)
+            label = "toxic" if score >= 0.70 else "non-toxic"
+            matched = next(
+                (q for q in seed_queries if q and q.lower() in text.lower()),
+                seed_queries[0],
+            )
+            save_post(text=text, label=label, score=score, platform="bluesky", query_term=matched)
+
+        logger.info("seed_if_empty: seeded %d posts", len(texts))
+    except Exception as exc:
+        # WHY catch-all: Bluesky credentials may not be set, the network may
+        # be unavailable, or the model may not have loaded. The app must start
+        # regardless - the user can always click FETCH manually.
+        logger.warning("seed_if_empty: failed (non-fatal): %s", exc)
