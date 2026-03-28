@@ -33,23 +33,21 @@ jobs:
         run: |
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
-          git config --global init.defaultBranch main
-        
-          mkdir -p /tmp/hf-deploy/app
-          mkdir -p /tmp/hf-deploy/frontend/dist
-        
-          cp Dockerfile requirements.txt pyproject.toml README_HF.md /tmp/hf-deploy/
-          cp -r app/* /tmp/hf-deploy/app/
-          cp -r frontend/dist/ /tmp/hf-deploy/frontend/
-          mv /tmp/hf-deploy/README_HF.md /tmp/hf-deploy/README.md
-        
-          cd /tmp/hf-deploy
-          git init
+
+          git checkout --orphan hf-deploy
+
+          git rm -rf assets/ 2>/dev/null || true
+          git rm -r --cached frontend/src/ 2>/dev/null || true
+          git rm -r --cached frontend/node_modules/ 2>/dev/null || true
+          git rm -r --cached frontend/public/ 2>/dev/null || true
+
+          cp README_HF.md README.md
+          git rm --cached README_HF.md 2>/dev/null || true
+          rm README_HF.md
+
+          git add -f frontend/dist/
           git add .
+
           git commit -m "Deploy to HuggingFace Spaces"
-        
-          for i in 1 2 3; do
-            git push https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope main --force && break
-            echo "Push attempt $i failed, retrying in 10s..."
-            sleep 10
-          done
+          git remote add space https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope
+          git push space hf-deploy:main --force
