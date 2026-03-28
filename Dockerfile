@@ -36,6 +36,8 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 RUN echo "=== Step 7: appuser created ==="
 
+RUN chown -R appuser:appuser /app
+
 USER appuser
 
 # WHY 7860: HuggingFace Docker Spaces expect port 7860 by default.
