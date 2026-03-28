@@ -34,27 +34,14 @@ jobs:
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
 
-          git checkout --orphan hf-deploy
+          mkdir /tmp/hf-deploy
+          cp Dockerfile requirements.txt pyproject.toml README_HF.md /tmp/hf-deploy/
+          cp -r app/ /tmp/hf-deploy/app/
+          cp -r frontend/dist/ /tmp/hf-deploy/frontend/dist/
+          mv /tmp/hf-deploy/README_HF.md /tmp/hf-deploy/README.md
 
-          git rm -rf assets/ 2>/dev/null || true
-
-          if [ -f README_HF.md ]; then
-            cp README_HF.md README.md
-            git rm --cached README_HF.md 2>/dev/null || true
-            rm README_HF.md
-          fi
-
-          git add -f frontend/dist/
+          cd /tmp/hf-deploy
+          git init
           git add .
-
-          git rm -r --cached frontend/src/ 2>/dev/null || true
-          git rm -r --cached frontend/node_modules/ 2>/dev/null || true
-
           git commit -m "Deploy to HuggingFace Spaces"
-
-          # WHY push directly to URL instead of using a named remote:
-          # git checkout --orphan creates a branch with a clean .git/config —
-          # no remotes exist. Both `git remote add` and `git remote set-url`
-          # fail with "No such remote" because there is nothing to update.
-          # Pushing directly to the HTTPS URL skips the remote registry entirely.
-          git push https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope hf-deploy:main --force
+          git push https://odeliyach:$HF_TOKEN@huggingface.co/spaces/odeliyach/Algoscope main --force
