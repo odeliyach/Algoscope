@@ -7,42 +7,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Module-level singleton — see __new__ below for why.
-_instance: "ToxicityClassifier | None" = None
-
 
 class ToxicityClassifier:
     """
     Wrapper around the fine-tuned DistilBERT toxicity model.
 
-    Uses the singleton pattern so the model is loaded only once per process.
-    WHY singleton: DistilBERT is ~250MB and takes ~2s to load. Without this,
-    every API call or dashboard rerun would reload the model from disk,
-    making each request take 2+ seconds instead of ~50ms.
+    WHY lazy loading: calling _load_model() inside __init__ triggers a 250MB
+    model download at import time, before uvicorn binds to port 7860.
+    HuggingFace Spaces sees no response and kills the container with no logs.
+    Instead, main.py calls _load_model() explicitly inside lifespan(), after
+    the server is already up and logging.
     """
 
-    def __new__(cls) -> "ToxicityClassifier":
-        global _instance
-        if _instance is None:
-            _instance = super().__new__(cls)
-        return _instance
-
     def __init__(self) -> None:
-        # Guard against re-initialization on subsequent calls.
-        # __init__ is called every time ToxicityClassifier() is called,
-        # but __new__ returns the same object, so we check here.
-        if hasattr(self, "_pipeline"):
-            return
         self._pipeline = None
-        self._load_model()
 
     def _load_model(self) -> None:
-        """
-        Load the HuggingFace pipeline. Called once per process at startup.
-
-        Raises RuntimeError if the model cannot be loaded, so failures are
-        loud and explicit rather than silently returning wrong predictions.
-        """
+        """Load the HuggingFace pipeline. Called once by lifespan() in main.py."""
         if self._pipeline is not None:
             return
 
@@ -57,25 +38,11 @@ class ToxicityClassifier:
             )
             logger.info("Model loaded successfully")
         except Exception as exc:
-            # WHY warn instead of raise: a RuntimeError here propagates up to
-            # uvicorn's import phase and kills the process before HF can capture
-            # any logs. Logging and leaving _pipeline=None lets the server stay
-            # alive; predict() already handles pipeline=None gracefully.
             logger.error("Failed to load model: %s", exc, exc_info=True)
             self._pipeline = None
 
     def predict(self, text: str) -> dict[str, Any]:
-        """
-        Classify a single text as toxic or non-toxic.
-
-        Args:
-            text: Input string to classify.
-
-        Returns:
-            Dict with "label" ("toxic" or "non-toxic") and "score" (float 0-1).
-            Returns {"label": "non-toxic", "score": 0.0} on any error so the
-            caller always gets a valid response shape.
-        """
+        """Classify a single text as toxic or non-toxic."""
         default: dict[str, Any] = {"label": "non-toxic", "score": 0.0}
 
         if not text or not text.strip():
@@ -94,8 +61,6 @@ class ToxicityClassifier:
             raw_label = str(raw.get("label", "")).lower()
             raw_score = float(raw.get("score", 0.0))
 
-            # WHY normalize: HuggingFace label strings vary by model
-            # ("LABEL_1", "toxic", "1") — normalize to a stable contract.
             if "toxic" in raw_label or raw_label in ("1", "label_1", "positive"):
                 label = "toxic"
             else:
@@ -108,21 +73,7 @@ class ToxicityClassifier:
             return default
 
     def predict_batch(self, texts: list[str]) -> list[dict[str, Any]]:
-        """
-        Classify a list of texts in a single forward pass.
-
-        WHY batch over looping predict(): on CPU, one forward pass for N texts
-        costs roughly the same as one pass for 1 text because matrix operations
-        are parallelized across the batch dimension. Measured: predict_batch(50)
-        takes ~0.36s vs ~18s for 50 sequential predict() calls.
-
-        Args:
-            texts: List of strings to classify.
-
-        Returns:
-            List of dicts with "label" and "score", in the same order as input.
-            Returns empty list on any error.
-        """
+        """Classify a list of texts in a single forward pass."""
         if not texts:
             return []
 
