@@ -32,24 +32,23 @@ logger = logging.getLogger(__name__)
 # Load local environment variables for Bluesky credentials in development.
 load_dotenv()
 
+# WHY None here: initializing ToxicityClassifier() at module scope triggers
+# a 250MB model download before uvicorn binds to port 7860. HuggingFace Spaces
+# sees no response on the port and kills the container with no logs.
+# We initialize inside lifespan() instead, after the server is already up.
+classifier: ToxicityClassifier | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global classifier
     logger.info("AlgoScope API starting up")
-    # WHY load model in lifespan instead of module scope:
-    # If the model download fails at module import time, uvicorn crashes before
-    # binding to port 7860, so HuggingFace Spaces sees a dead container with no
-    # logs. Loading here means the server is already up and logging when the
-    # failure happens, making it debuggable.
     try:
-        classifier._load_model()
+        classifier = ToxicityClassifier()
         logger.info("ToxicityClassifier ready")
     except Exception as exc:
-        # WHY catch and warn instead of re-raise:
-        # A model load failure should degrade gracefully (predict returns defaults)
-        # not take down the entire API. The /health endpoint stays alive so HF
-        # doesn't restart-loop the container.
         logger.warning("Model load failed — predictions will return defaults: %s", exc)
+        classifier = None
     try:
         seed_if_empty()
         logger.info("DB seed check complete")
@@ -73,8 +72,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-classifier = ToxicityClassifier()
 
 
 class PredictRequest(BaseModel):
@@ -111,6 +108,8 @@ def health() -> dict[str, str]:
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest) -> dict[str, str | float]:
     """Classify a single text as toxic or non-toxic."""
+    if classifier is None:
+        return {"label": "non-toxic", "score": 0.0}
     logger.info("Predicting for text (len=%d)", len(request.text))
     result = classifier.predict(request.text)
     logger.info("Result: label=%s score=%.3f", result["label"], result["score"])
@@ -135,13 +134,11 @@ def get_posts(
 def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
     """
     Fetch posts from Bluesky, run batch inference, save to DB, return results.
-
-    WHY POST not GET: this endpoint has side effects (DB writes + external API calls).
-    WHY batch inference: predict_batch(50) takes ~0.36s vs ~18s for 50 sequential
-    predict() calls — a ~50x speedup because matrix ops are vectorized across the batch.
-    WHY we time fetch and inference separately: helps identify whether latency comes
-    from the Bluesky API (network) or the model (compute).
     """
+    if classifier is None:
+        return {"posts": [], "fetch_time": 0.0, "infer_time": 0.0, "count": 0,
+                "message": "Model not loaded yet, please try again in a moment."}
+
     logger.info(
         "fetch-and-analyze: queries=%s limit=%d threshold=%.2f",
         request.queries, request.limit, request.threshold,
@@ -164,7 +161,6 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
             "message": "No posts fetched. Check Bluesky credentials or try again.",
         }
 
-    # Unpack tuples returned by fetch_posts: [(text, timestamp), ...]
     texts_only = [text for text, _ts in posts_text]
     timestamps = [ts for _text, ts in posts_text]
 
@@ -184,7 +180,7 @@ def fetch_and_analyze(request: FetchRequest) -> dict[str, Any]:
         )
         save_post(text=text, label=label, score=score, platform="bluesky", query_term=matched_term)
         result_posts.append({
-            "id": int(time.time() * 1000) + i,  # unique id per post — prevents frontend dedup wiping history
+            "id": int(time.time() * 1000) + i,
             "text": text,
             "label": label,
             "score": score,
@@ -211,14 +207,7 @@ def graph_data(
     min_cooccurrence: int = Query(default=2, ge=1, le=20),
     toxic_only: bool = Query(default=False),
 ) -> dict[str, Any]:
-    """
-    Return co-occurrence graph as JSON nodes + edges.
-
-    WHY JSON not Pyvis HTML: the React frontend has its own force-directed
-    physics simulation (CoOccurrenceGraph.tsx). Sending raw JSON lets the
-    frontend control layout and animations. Sending HTML would lose all
-    custom visual behavior.
-    """
+    """Return co-occurrence graph as JSON nodes + edges."""
     graph = build_cooccurrence_graph(min_cooccurrence=min_cooccurrence)
 
     nodes = []
@@ -247,12 +236,7 @@ def graph_data(
 
 @app.get("/stats")
 def stats() -> dict[str, Any]:
-    """
-    Aggregate statistics for the Overview tab metric cards.
-
-    WHY dedicated endpoint: avoids transferring thousands of rows to the
-    frontend just to compute 4 numbers — a classic API design principle.
-    """
+    """Aggregate statistics for the Overview tab metric cards."""
     rows = get_recent_posts(limit=100_000)
     total = len(rows)
     toxic = sum(1 for r in rows if (r.get("label") or "").lower() == "toxic")
@@ -270,10 +254,6 @@ def stats() -> dict[str, Any]:
 
 
 # ── Static file serving (React build) ─────────────────────────────────────────
-# WHY serve from FastAPI: HuggingFace Spaces exposes exactly one port (7860).
-# We can't run nginx alongside FastAPI.
-# WHY check os.path.exists: in local dev, frontend/dist doesn't exist until
-# you run `pnpm build`. Without this check FastAPI crashes on startup in dev.
 _FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 if os.path.exists(_FRONTEND_DIST):
@@ -285,8 +265,6 @@ if os.path.exists(_FRONTEND_DIST):
     def serve_frontend_root():
         return FileResponse(os.path.join(_FRONTEND_DIST, "index.html"))
 
-    # WHY catch-all comes last: FastAPI matches routes in registration order.
-    # If this came before /posts or /graph-data, those routes would never be reached.
     @app.get("/{full_path:path}", response_class=FileResponse, include_in_schema=False)
     def serve_frontend_spa(full_path: str):
         """Catch-all for React Router — prevents 404 on page refresh."""
