@@ -45,6 +45,11 @@ async def lifespan(app: FastAPI):
     logger.info("AlgoScope API starting up")
     try:
         classifier = ToxicityClassifier()
+        # WHY call _load_model() explicitly here:
+        # __init__ no longer calls _load_model() automatically (that caused
+        # the startup crash). So we must call it here, after uvicorn is up,
+        # before seed_if_empty() — which needs a ready pipeline to classify.
+        classifier._load_model()
         logger.info("ToxicityClassifier ready")
     except Exception as exc:
         logger.warning("Model load failed — predictions will return defaults: %s", exc)
